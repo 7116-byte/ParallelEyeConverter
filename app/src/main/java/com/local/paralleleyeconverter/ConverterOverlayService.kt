@@ -66,7 +66,7 @@ class ConverterOverlayService : Service() {
         showingPlayer = false
         val size = dp(62)
         val ball = FloatingBallView(this).apply {
-            setOnOpenRequested { requestCurrentAppCapture() }
+            setOnOpenRequested { showPlayer() }
         }
         val params = overlayParams(size, size).apply {
             gravity = Gravity.TOP or Gravity.END
@@ -146,15 +146,6 @@ class ConverterOverlayService : Service() {
     private fun removeCurrentView() {
         currentView?.let { view -> runCatching { windowManager.removeView(view) } }
         currentView = null
-    }
-
-    private fun requestCurrentAppCapture() {
-        stopService(Intent(this, ConverterProjectionService::class.java).setAction(ConverterProjectionService.ACTION_STOP))
-        removeCurrentView()
-        startActivity(Intent(this, CapturePermissionActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        })
-        stopSelf()
     }
 
     private fun overlayParams(width: Int, height: Int): LayoutParams {

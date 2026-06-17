@@ -26,7 +26,7 @@ D:\AndroidBuild\gradle\gradle-8.10.2\bin\gradle.bat assembleDebug
 构建产物：
 
 ```text
-app/build/outputs/apk/debug/ParallelEyeConverter-v0.1.4-debug.apk
+app/build/outputs/apk/debug/ParallelEyeConverter-v0.1.5-debug.apk
 ```
 
 ## GitHub 发布约定
@@ -39,7 +39,7 @@ https://github.com/7116-byte/ParallelEyeConverter
 
 发布新版时，在 GitHub Release 上传 APK。App 内检查更新会根据 Release tag 和当前 `versionName` 对比：
 
-- 当前版本：`v0.1.4`
+- 当前版本：`v0.1.5`
 - APK 文件名不限，只要 Release asset URL 以 `.apk` 结尾即可。
 
 ## 下一步
