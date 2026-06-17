@@ -22,8 +22,8 @@ import android.view.WindowManager.LayoutParams
 import android.widget.FrameLayout
 import android.widget.TextView
 import kotlin.math.abs
-import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sqrt
 
 class ConverterOverlayService : Service() {
     private lateinit var windowManager: WindowManager
@@ -224,11 +224,18 @@ private class FloatingBallView(context: Context) : View(context) {
 
 private class ConverterSbsView(context: Context) : View(context) {
     private val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
+    private val dividerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(220, 225, 235, 245)
+        strokeWidth = 2f * context.resources.displayMetrics.density
+    }
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         textSize = 30f * context.resources.displayMetrics.scaledDensity
         textAlign = Paint.Align.CENTER
     }
+    private var zoom = 1f
+    private var pinchStartDistance = 0f
+    private var pinchStartZoom = 1f
 
     override fun onDraw(canvas: Canvas) {
         canvas.drawColor(Color.BLACK)
@@ -240,16 +247,50 @@ private class ConverterSbsView(context: Context) : View(context) {
             drawEye(canvas, frame, 0f, eyeWidth)
             drawEye(canvas, frame, eyeWidth, eyeWidth)
         }
+        val centerX = width / 2f
+        canvas.drawLine(centerX, 0f, centerX, height.toFloat(), dividerPaint)
         postInvalidateOnAnimation()
     }
 
     private fun drawEye(canvas: Canvas, frame: android.graphics.Bitmap, left: Float, eyeWidth: Float) {
-        val scale = max(eyeWidth / frame.width, height.toFloat() / frame.height)
+        val scale = eyeWidth / frame.width * zoom
         val drawWidth = frame.width * scale
         val drawHeight = frame.height * scale
         val dx = left + (eyeWidth - drawWidth) / 2f
         val dy = (height - drawHeight) / 2f
         val dst = RectF(dx, dy, dx + drawWidth, dy + drawHeight)
         canvas.drawBitmap(frame, null, dst, paint)
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                if (event.pointerCount >= 2) {
+                    pinchStartDistance = pointerDistance(event)
+                    pinchStartZoom = zoom
+                }
+                return true
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (event.pointerCount >= 2 && pinchStartDistance > 8f) {
+                    val distance = pointerDistance(event)
+                    zoom = (pinchStartZoom * distance / pinchStartDistance).coerceIn(0.6f, 4f)
+                    invalidate()
+                }
+                return true
+            }
+            MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
+                pinchStartDistance = 0f
+                pinchStartZoom = zoom
+                return true
+            }
+        }
+        return true
+    }
+
+    private fun pointerDistance(event: MotionEvent): Float {
+        val dx = event.getX(0) - event.getX(1)
+        val dy = event.getY(0) - event.getY(1)
+        return sqrt(dx * dx + dy * dy)
     }
 }
