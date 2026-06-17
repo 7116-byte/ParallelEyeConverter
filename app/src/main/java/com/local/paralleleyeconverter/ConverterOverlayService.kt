@@ -3,6 +3,7 @@ package com.local.paralleleyeconverter
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -43,12 +44,29 @@ class ConverterOverlayService : Service() {
         super.onDestroy()
     }
 
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (showingPlayer) {
+            currentView?.let { view ->
+                val (screenWidth, screenHeight) = realDisplaySize()
+                val params = overlayParams(screenWidth, screenHeight).apply {
+                    gravity = Gravity.CENTER
+                    x = 0
+                    y = 0
+                }
+                runCatching { windowManager.updateViewLayout(view, params) }
+                view.requestLayout()
+                view.invalidate()
+            }
+        }
+    }
+
     private fun showFloatingBall() {
         removeCurrentView()
         showingPlayer = false
         val size = dp(62)
         val ball = FloatingBallView(this).apply {
-            setOnOpenRequested { showPlayer() }
+            setOnOpenRequested { requestCurrentAppCapture() }
         }
         val params = overlayParams(size, size).apply {
             gravity = Gravity.TOP or Gravity.END
@@ -128,6 +146,15 @@ class ConverterOverlayService : Service() {
     private fun removeCurrentView() {
         currentView?.let { view -> runCatching { windowManager.removeView(view) } }
         currentView = null
+    }
+
+    private fun requestCurrentAppCapture() {
+        stopService(Intent(this, ConverterProjectionService::class.java).setAction(ConverterProjectionService.ACTION_STOP))
+        removeCurrentView()
+        startActivity(Intent(this, CapturePermissionActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        })
+        stopSelf()
     }
 
     private fun overlayParams(width: Int, height: Int): LayoutParams {
@@ -225,8 +252,8 @@ private class FloatingBallView(context: Context) : View(context) {
 private class ConverterSbsView(context: Context) : View(context) {
     private val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
     private val dividerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(220, 225, 235, 245)
-        strokeWidth = 2f * context.resources.displayMetrics.density
+        color = Color.BLACK
+        strokeWidth = 3f * context.resources.displayMetrics.density
     }
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
@@ -259,7 +286,10 @@ private class ConverterSbsView(context: Context) : View(context) {
         val dx = left + (eyeWidth - drawWidth) / 2f
         val dy = (height - drawHeight) / 2f
         val dst = RectF(dx, dy, dx + drawWidth, dy + drawHeight)
+        canvas.save()
+        canvas.clipRect(left, 0f, left + eyeWidth, height.toFloat())
         canvas.drawBitmap(frame, null, dst, paint)
+        canvas.restore()
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
