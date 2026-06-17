@@ -30,6 +30,7 @@ class ConverterProjectionService : Service() {
     private var imageReader: ImageReader? = null
     private var handlerThread: HandlerThread? = null
     private var reusableBitmap: Bitmap? = null
+    private var projectionCallback: MediaProjection.Callback? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -42,6 +43,9 @@ class ConverterProjectionService : Service() {
         val resultCode = intent?.getIntExtra(EXTRA_RESULT_CODE, 0) ?: return START_NOT_STICKY
         val resultData = getResultData(intent) ?: return START_NOT_STICKY
         val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        if (projection != null) {
+            return START_STICKY
+        }
         projection = manager.getMediaProjection(resultCode, resultData)
         startCapture()
         return START_STICKY
@@ -50,6 +54,9 @@ class ConverterProjectionService : Service() {
     override fun onDestroy() {
         virtualDisplay?.release()
         imageReader?.close()
+        projectionCallback?.let { callback ->
+            runCatching { projection?.unregisterCallback(callback) }
+        }
         projection?.stop()
         handlerThread?.quitSafely()
         FrameBus.clear()
@@ -92,6 +99,18 @@ class ConverterProjectionService : Service() {
                 publishImage(image)
             }
         }, handler)
+        val callback = object : MediaProjection.Callback() {
+            override fun onStop() {
+                virtualDisplay?.release()
+                virtualDisplay = null
+                imageReader?.close()
+                imageReader = null
+                FrameBus.clear()
+                stopSelf()
+            }
+        }
+        projectionCallback = callback
+        projection?.registerCallback(callback, handler)
         virtualDisplay = projection?.createVirtualDisplay(
             "ParallelEyeConverter",
             width,

@@ -8,41 +8,190 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.RectF
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.IBinder
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.WindowManager.LayoutParams
+import android.widget.FrameLayout
+import android.widget.TextView
+import kotlin.math.abs
 import kotlin.math.min
 
 class ConverterOverlayService : Service() {
     private lateinit var windowManager: WindowManager
-    private var overlay: ConverterSbsView? = null
+    private var currentView: View? = null
+    private var showingPlayer = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-        val view = ConverterSbsView(this).also { overlay = it }
-        val params = LayoutParams(
-            LayoutParams.MATCH_PARENT,
-            LayoutParams.MATCH_PARENT,
-            LayoutParams.TYPE_APPLICATION_OVERLAY,
-            LayoutParams.FLAG_NOT_FOCUSABLE or LayoutParams.FLAG_NOT_TOUCH_MODAL,
-            PixelFormat.TRANSLUCENT,
-        ).apply {
+        showFloatingBall()
+    }
+
+    override fun onDestroy() {
+        removeCurrentView()
+        super.onDestroy()
+    }
+
+    private fun showFloatingBall() {
+        removeCurrentView()
+        showingPlayer = false
+        val size = dp(62)
+        val ball = FloatingBallView(this).apply {
+            setOnOpenRequested { showPlayer() }
+        }
+        val params = overlayParams(size, size).apply {
+            gravity = Gravity.TOP or Gravity.END
+            x = dp(18)
+            y = dp(140)
+        }
+        currentView = ball
+        windowManager.addView(ball, params)
+    }
+
+    private fun showPlayer() {
+        removeCurrentView()
+        showingPlayer = true
+        val root = FrameLayout(this)
+        root.setBackgroundColor(Color.BLACK)
+        root.addView(ConverterSbsView(this), FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT,
+        ))
+        root.addView(createControls(), FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            dp(58),
+            Gravity.CENTER,
+        ))
+        val params = overlayParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT).apply {
             gravity = Gravity.CENTER
             x = 0
             y = 0
         }
-        windowManager.addView(view, params)
+        currentView = root
+        windowManager.addView(root, params)
     }
 
-    override fun onDestroy() {
-        overlay?.let { runCatching { windowManager.removeView(it) } }
-        overlay = null
-        super.onDestroy()
+    private fun createControls(): View {
+        val panel = FrameLayout(this).apply {
+            background = rounded(Color.argb(190, 20, 24, 31), dp(29))
+            setPadding(dp(10), dp(6), dp(10), dp(6))
+        }
+        val minus = controlButton("\u2212", Color.argb(235, 255, 255, 255), Color.rgb(28, 35, 44)).apply {
+            setOnClickListener { showFloatingBall() }
+        }
+        val close = controlButton("\u00d7", Color.rgb(0, 210, 130), Color.WHITE).apply {
+            setOnClickListener {
+                stopService(Intent(this@ConverterOverlayService, ConverterProjectionService::class.java).setAction(ConverterProjectionService.ACTION_STOP))
+                stopSelf()
+            }
+        }
+        val minusParams = FrameLayout.LayoutParams(dp(46), dp(46), Gravity.START or Gravity.CENTER_VERTICAL)
+        panel.addView(minus, minusParams)
+        val closeParams = FrameLayout.LayoutParams(dp(46), dp(46), Gravity.END or Gravity.CENTER_VERTICAL).apply {
+            leftMargin = dp(58)
+        }
+        panel.addView(close, closeParams)
+        panel.layoutParams = ViewGroup.LayoutParams(dp(114), dp(58))
+        return panel
+    }
+
+    private fun controlButton(textValue: String, bg: Int, fg: Int): TextView {
+        return TextView(this).apply {
+            text = textValue
+            textSize = 28f
+            gravity = Gravity.CENTER
+            setTextColor(fg)
+            typeface = Typeface.DEFAULT_BOLD
+            background = rounded(bg, dp(23))
+        }
+    }
+
+    private fun removeCurrentView() {
+        currentView?.let { view -> runCatching { windowManager.removeView(view) } }
+        currentView = null
+    }
+
+    private fun overlayParams(width: Int, height: Int): LayoutParams {
+        return LayoutParams(
+            width,
+            height,
+            LayoutParams.TYPE_APPLICATION_OVERLAY,
+            LayoutParams.FLAG_NOT_FOCUSABLE or LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            PixelFormat.TRANSLUCENT,
+        )
+    }
+
+    private fun rounded(color: Int, radius: Int): GradientDrawable {
+        return GradientDrawable().apply {
+            setColor(color)
+            cornerRadius = radius.toFloat()
+        }
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+}
+
+private class FloatingBallView(context: Context) : View(context) {
+    private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(235, 62, 66) }
+    private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        style = Paint.Style.STROKE
+        strokeWidth = 4f
+    }
+    private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textSize = 25f * context.resources.displayMetrics.scaledDensity
+        typeface = Typeface.DEFAULT_BOLD
+        textAlign = Paint.Align.CENTER
+    }
+    private var onOpenRequested: (() -> Unit)? = null
+    private var lastTapTime = 0L
+    private var downX = 0f
+    private var downY = 0f
+
+    fun setOnOpenRequested(listener: () -> Unit) {
+        onOpenRequested = listener
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val radius = min(width, height) / 2f - 3f
+        val cx = width / 2f
+        val cy = height / 2f
+        canvas.drawCircle(cx, cy, radius, fillPaint)
+        canvas.drawCircle(cx, cy, radius - 5f, ringPaint)
+        val baseline = cy - (textPaint.descent() + textPaint.ascent()) / 2f
+        canvas.drawText("\u8f6c", cx, baseline, textPaint)
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                downX = event.rawX
+                downY = event.rawY
+                return true
+            }
+            MotionEvent.ACTION_UP -> {
+                if (abs(event.rawX - downX) < 12f && abs(event.rawY - downY) < 12f) {
+                    val now = System.currentTimeMillis()
+                    if (now - lastTapTime < 360L) {
+                        lastTapTime = 0L
+                        onOpenRequested?.invoke()
+                    } else {
+                        lastTapTime = now
+                    }
+                }
+                return true
+            }
+        }
+        return true
     }
 }
 
@@ -50,14 +199,15 @@ private class ConverterSbsView(context: Context) : View(context) {
     private val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
-        textSize = 34f
+        textSize = 30f * context.resources.displayMetrics.scaledDensity
+        textAlign = Paint.Align.CENTER
     }
 
     override fun onDraw(canvas: Canvas) {
         canvas.drawColor(Color.BLACK)
         val frame = FrameBus.latestFrame
         if (frame == null) {
-            canvas.drawText("\u7b49\u5f85\u5f55\u5c4f\u753b\u9762...", 48f, 96f, textPaint)
+            canvas.drawText("\u7b49\u5f85\u5f55\u5c4f\u753b\u9762...", width / 2f, height / 2f, textPaint)
         } else {
             val eyeWidth = width / 2f
             drawEye(canvas, frame, 0f, eyeWidth)
