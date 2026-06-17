@@ -23,20 +23,20 @@ import java.net.URL
 
 private const val GITHUB_OWNER = "7116-byte"
 private const val GITHUB_REPO = "ParallelEyeConverter"
-private const val CURRENT_VERSION = "0.1.1"
+private const val CURRENT_VERSION = "0.1.2"
 
 private const val TEXT_APP_NAME = "\u5b9e\u65f6\u5e73\u884c\u773c\u8f6c\u5316"
 private const val TEXT_SUBTITLE = "\u5f55\u5c4f\u6355\u83b7  /  \u60ac\u6d6e\u7403  /  \u5de6\u53f3\u773c\u8f93\u51fa"
 private const val TEXT_DESCRIPTION =
     "\u70b9\u51fb\u5f00\u59cb\u540e\u6388\u6743\u5f55\u5c4f\uff0c\u8fdb\u5165\u8981\u8f6c\u5316\u7684 App\uff0c" +
-        "\u53cc\u51fb\u7ea2\u8272\u60ac\u6d6e\u7403\u6253\u5f00\u5e73\u884c\u773c\u753b\u9762\u3002"
+        "\u6388\u6743\u6210\u529f\u540e\u4f1a\u76f4\u63a5\u76d6\u4e0a\u5de6\u53f3\u773c\u5e73\u884c\u753b\u9762\u3002"
 private const val TEXT_START = "\u5f00\u59cb\u8f6c\u5316"
 private const val TEXT_STOP = "\u505c\u6b62\u8f6c\u5316"
 private const val TEXT_CHECK_UPDATE = "\u68c0\u67e5\u66f4\u65b0"
 private const val TEXT_DOWNLOAD_UPDATE = "\u4e0b\u8f7d\u66f4\u65b0"
 private const val TEXT_READY = "\u51c6\u5907\u5c31\u7eea"
 private const val TEXT_NEED_OVERLAY = "\u8bf7\u5148\u6388\u4e88\u60ac\u6d6e\u7a97\u6743\u9650"
-private const val TEXT_WAITING_CAPTURE = "\u5df2\u8bf7\u6c42\u5f55\u5c4f\u6388\u6743\uff1b\u6388\u6743\u540e\u4f1a\u663e\u793a\u7ea2\u8272\u60ac\u6d6e\u7403"
+private const val TEXT_WAITING_CAPTURE = "\u5df2\u8bf7\u6c42\u5f55\u5c4f\u6388\u6743\uff1b\u6388\u6743\u540e\u4f1a\u76f4\u63a5\u5f00\u542f\u5e73\u884c\u773c\u753b\u9762"
 private const val TEXT_STOPPED = "\u5df2\u505c\u6b62"
 private const val TEXT_CHECKING = "\u6b63\u5728\u68c0\u67e5\u66f4\u65b0..."
 

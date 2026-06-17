@@ -10,7 +10,9 @@ import android.graphics.PixelFormat
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.IBinder
+import android.util.DisplayMetrics
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -20,6 +22,7 @@ import android.view.WindowManager.LayoutParams
 import android.widget.FrameLayout
 import android.widget.TextView
 import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.min
 
 class ConverterOverlayService : Service() {
@@ -32,7 +35,7 @@ class ConverterOverlayService : Service() {
     override fun onCreate() {
         super.onCreate()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-        showFloatingBall()
+        showPlayer()
     }
 
     override fun onDestroy() {
@@ -61,6 +64,13 @@ class ConverterOverlayService : Service() {
         showingPlayer = true
         val root = FrameLayout(this)
         root.setBackgroundColor(Color.BLACK)
+        root.systemUiVisibility =
+            View.SYSTEM_UI_FLAG_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE
         root.addView(ConverterSbsView(this), FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -70,7 +80,8 @@ class ConverterOverlayService : Service() {
             dp(58),
             Gravity.CENTER,
         ))
-        val params = overlayParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT).apply {
+        val (screenWidth, screenHeight) = realDisplaySize()
+        val params = overlayParams(screenWidth, screenHeight).apply {
             gravity = Gravity.CENTER
             x = 0
             y = 0
@@ -124,9 +135,25 @@ class ConverterOverlayService : Service() {
             width,
             height,
             LayoutParams.TYPE_APPLICATION_OVERLAY,
-            LayoutParams.FLAG_NOT_FOCUSABLE or LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            LayoutParams.FLAG_NOT_FOCUSABLE or
+                LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                LayoutParams.FLAG_FULLSCREEN,
             PixelFormat.TRANSLUCENT,
         )
+    }
+
+    private fun realDisplaySize(): Pair<Int, Int> {
+        return if (Build.VERSION.SDK_INT >= 30) {
+            val bounds = windowManager.currentWindowMetrics.bounds
+            bounds.width() to bounds.height()
+        } else {
+            val metrics = DisplayMetrics()
+            @Suppress("DEPRECATION")
+            windowManager.defaultDisplay.getRealMetrics(metrics)
+            metrics.widthPixels to metrics.heightPixels
+        }
     }
 
     private fun rounded(color: Int, radius: Int): GradientDrawable {
@@ -217,7 +244,7 @@ private class ConverterSbsView(context: Context) : View(context) {
     }
 
     private fun drawEye(canvas: Canvas, frame: android.graphics.Bitmap, left: Float, eyeWidth: Float) {
-        val scale = min(eyeWidth / frame.width, height.toFloat() / frame.height)
+        val scale = max(eyeWidth / frame.width, height.toFloat() / frame.height)
         val drawWidth = frame.width * scale
         val drawHeight = frame.height * scale
         val dx = left + (eyeWidth - drawWidth) / 2f
