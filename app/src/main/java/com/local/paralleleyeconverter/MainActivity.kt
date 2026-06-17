@@ -23,7 +23,7 @@ import java.net.URL
 
 private const val GITHUB_OWNER = "7116-byte"
 private const val GITHUB_REPO = "ParallelEyeConverter"
-private const val CURRENT_VERSION = "0.1.5"
+private const val CURRENT_VERSION = "0.1.6"
 
 private const val TEXT_APP_NAME = "\u5b9e\u65f6\u5e73\u884c\u773c\u8f6c\u5316"
 private const val TEXT_SUBTITLE = "\u5f55\u5c4f\u6355\u83b7  /  \u60ac\u6d6e\u7403  /  \u5de6\u53f3\u773c\u8f93\u51fa"
@@ -34,6 +34,7 @@ private const val TEXT_START = "\u5f00\u59cb\u8f6c\u5316"
 private const val TEXT_STOP = "\u505c\u6b62\u8f6c\u5316"
 private const val TEXT_CHECK_UPDATE = "\u68c0\u67e5\u66f4\u65b0"
 private const val TEXT_DOWNLOAD_UPDATE = "\u4e0b\u8f7d\u66f4\u65b0"
+private const val TEXT_USAGE_ACCESS = "\u6388\u6743\u524d\u53f0\u8bc6\u522b"
 private const val TEXT_READY = "\u51c6\u5907\u5c31\u7eea"
 private const val TEXT_NEED_OVERLAY = "\u8bf7\u5148\u6388\u4e88\u60ac\u6d6e\u7a97\u6743\u9650"
 private const val TEXT_WAITING_CAPTURE = "\u5df2\u8bf7\u6c42\u5f55\u5c4f\u6388\u6743\uff1b\u6388\u6743\u540e\u4f1a\u76f4\u63a5\u5f00\u542f\u5e73\u884c\u773c\u753b\u9762"
@@ -122,6 +123,13 @@ class MainActivity : Activity() {
             }
         }
         content.addView(downloadButton, fullWidthParams(top = dp(12), height = dp(50)))
+
+        content.addView(secondaryButton(TEXT_USAGE_ACCESS).apply {
+            setOnClickListener {
+                startActivity(ForegroundAppHelper.usageSettingsIntent())
+                statusText.text = "\u8bf7\u5728\u7cfb\u7edf\u5217\u8868\u91cc\u5141\u8bb8\u5b9e\u65f6\u5e73\u884c\u773c\u8f6c\u5316\u7684\u4f7f\u7528\u60c5\u51b5\u8bbf\u95ee\u6743\u9650"
+            }
+        }, fullWidthParams(top = dp(12), height = dp(50)))
 
         content.addView(TextView(this).apply {
             text = "v$CURRENT_VERSION"

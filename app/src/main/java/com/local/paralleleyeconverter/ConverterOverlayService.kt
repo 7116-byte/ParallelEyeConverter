@@ -12,7 +12,9 @@ import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.util.DisplayMetrics
 import android.view.Gravity
 import android.view.MotionEvent
@@ -30,6 +32,7 @@ class ConverterOverlayService : Service() {
     private lateinit var windowManager: WindowManager
     private var currentView: View? = null
     private var showingPlayer = false
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -62,11 +65,12 @@ class ConverterOverlayService : Service() {
     }
 
     private fun showFloatingBall() {
+        ForegroundAppHelper.saveTargetPackage(this, ForegroundAppHelper.readForegroundPackage(this))
         removeCurrentView()
         showingPlayer = false
         val size = dp(62)
         val ball = FloatingBallView(this).apply {
-            setOnOpenRequested { showPlayer() }
+            setOnOpenRequested { openTargetThenShowPlayer() }
         }
         val params = overlayParams(size, size).apply {
             gravity = Gravity.TOP or Gravity.END
@@ -106,6 +110,21 @@ class ConverterOverlayService : Service() {
         }
         currentView = root
         windowManager.addView(root, params)
+    }
+
+    private fun openTargetThenShowPlayer() {
+        val targetPackage = ForegroundAppHelper.readTargetPackage(this)
+        val currentPackage = ForegroundAppHelper.readForegroundPackage(this)
+        if (!targetPackage.isNullOrBlank() && currentPackage != null && currentPackage != targetPackage) {
+            val launchIntent = packageManager.getLaunchIntentForPackage(targetPackage)
+            if (launchIntent != null) {
+                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                startActivity(launchIntent)
+                mainHandler.postDelayed({ showPlayer() }, 450L)
+                return
+            }
+        }
+        showPlayer()
     }
 
     private fun createControls(): View {
