@@ -23,6 +23,7 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.WindowManager.LayoutParams
 import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.TextView
 import kotlin.math.abs
 import kotlin.math.min
@@ -93,11 +94,32 @@ class ConverterOverlayService : Service() {
                 View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
                 View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
                 View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-        root.addView(ConverterSbsView(this), FrameLayout.LayoutParams(
+        lateinit var hideControlsRunnable: Runnable
+        val controls = createControls(
+            onMinimize = { showFloatingBall() },
+            onMaximize = {
+                refreshPlayerLayout(root)
+                (root.getChildAt(0) as? ConverterSbsView)?.resetZoom()
+            },
+            onClose = {
+                stopService(Intent(this@ConverterOverlayService, ConverterProjectionService::class.java).setAction(ConverterProjectionService.ACTION_STOP))
+                stopSelf()
+            },
+        )
+        fun showControlsTemporarily() {
+            controls.visibility = View.VISIBLE
+            mainHandler.removeCallbacks(hideControlsRunnable)
+            mainHandler.postDelayed(hideControlsRunnable, 3000L)
+        }
+        hideControlsRunnable = Runnable { controls.visibility = View.GONE }
+        val sbsView = ConverterSbsView(this).apply {
+            setOnTap { showControlsTemporarily() }
+        }
+        root.addView(sbsView, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT,
         ))
-        root.addView(createControls(), FrameLayout.LayoutParams(
+        root.addView(controls, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT,
             dp(58),
             Gravity.CENTER,
@@ -110,6 +132,7 @@ class ConverterOverlayService : Service() {
         }
         currentView = root
         windowManager.addView(root, params)
+        showControlsTemporarily()
     }
 
     private fun openTargetThenShowPlayer() {
@@ -127,27 +150,48 @@ class ConverterOverlayService : Service() {
         showPlayer()
     }
 
-    private fun createControls(): View {
-        val panel = FrameLayout(this).apply {
+    private fun refreshPlayerLayout(view: View) {
+        val (screenWidth, screenHeight) = realDisplaySize()
+        val params = overlayParams(screenWidth, screenHeight).apply {
+            gravity = Gravity.CENTER
+            x = 0
+            y = 0
+        }
+        runCatching { windowManager.updateViewLayout(view, params) }
+        view.requestLayout()
+        view.invalidate()
+    }
+
+    private fun createControls(onMinimize: () -> Unit, onMaximize: () -> Unit, onClose: () -> Unit): View {
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
             background = rounded(Color.argb(190, 20, 24, 31), dp(29))
             setPadding(dp(10), dp(6), dp(10), dp(6))
         }
         val minus = controlButton("\u2212", Color.argb(235, 255, 255, 255), Color.rgb(28, 35, 44)).apply {
-            setOnClickListener { showFloatingBall() }
+            setOnClickListener { onMinimize() }
+        }
+        val max = controlButton("\u25a1", Color.argb(235, 255, 255, 255), Color.rgb(28, 35, 44)).apply {
+            setOnClickListener { onMaximize() }
         }
         val close = controlButton("\u00d7", Color.rgb(0, 210, 130), Color.WHITE).apply {
-            setOnClickListener {
-                stopService(Intent(this@ConverterOverlayService, ConverterProjectionService::class.java).setAction(ConverterProjectionService.ACTION_STOP))
-                stopSelf()
-            }
+            setOnClickListener { onClose() }
         }
-        val minusParams = FrameLayout.LayoutParams(dp(46), dp(46), Gravity.START or Gravity.CENTER_VERTICAL)
-        panel.addView(minus, minusParams)
-        val closeParams = FrameLayout.LayoutParams(dp(46), dp(46), Gravity.END or Gravity.CENTER_VERTICAL).apply {
-            leftMargin = dp(58)
+        val buttonParams = LinearLayout.LayoutParams(dp(46), dp(46)).apply {
+            marginStart = dp(4)
+            marginEnd = dp(4)
         }
-        panel.addView(close, closeParams)
-        panel.layoutParams = ViewGroup.LayoutParams(dp(114), dp(58))
+        panel.addView(minus, buttonParams)
+        panel.addView(max, LinearLayout.LayoutParams(dp(46), dp(46)).apply {
+            marginStart = dp(4)
+            marginEnd = dp(4)
+        })
+        panel.addView(close, LinearLayout.LayoutParams(dp(46), dp(46)).apply {
+            marginStart = dp(4)
+            marginEnd = dp(4)
+        })
+        panel.layoutParams = ViewGroup.LayoutParams(dp(170), dp(58))
         return panel
     }
 
@@ -273,6 +317,21 @@ private class ConverterSbsView(context: Context) : View(context) {
     private var zoom = 1f
     private var pinchStartDistance = 0f
     private var pinchStartZoom = 1f
+    private var downX = 0f
+    private var downY = 0f
+    private var pinching = false
+    private var onTap: (() -> Unit)? = null
+
+    fun setOnTap(listener: () -> Unit) {
+        onTap = listener
+    }
+
+    fun resetZoom() {
+        zoom = 1f
+        pinchStartDistance = 0f
+        pinchStartZoom = 1f
+        invalidate()
+    }
 
     override fun onDraw(canvas: Canvas) {
         canvas.drawColor(Color.BLACK)
@@ -304,8 +363,15 @@ private class ConverterSbsView(context: Context) : View(context) {
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                downX = event.x
+                downY = event.y
+                pinching = false
+                return true
+            }
             MotionEvent.ACTION_POINTER_DOWN -> {
                 if (event.pointerCount >= 2) {
+                    pinching = true
                     pinchStartDistance = pointerDistance(event)
                     pinchStartZoom = zoom
                 }
@@ -322,6 +388,13 @@ private class ConverterSbsView(context: Context) : View(context) {
             MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
                 pinchStartDistance = 0f
                 pinchStartZoom = zoom
+                return true
+            }
+            MotionEvent.ACTION_UP -> {
+                if (!pinching && abs(event.x - downX) < 24f && abs(event.y - downY) < 24f) {
+                    onTap?.invoke()
+                }
+                pinching = false
                 return true
             }
         }

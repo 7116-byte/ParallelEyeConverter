@@ -44,7 +44,7 @@ class ConverterProjectionService : Service() {
     private var rebuilding = false
 
     private val rebuildRunnable = Runnable {
-        rebuildCaptureSurface()
+        runCatching { rebuildCaptureSurface() }
     }
 
     private val frameWatchdog = object : Runnable {
@@ -140,8 +140,8 @@ class ConverterProjectionService : Service() {
     }
 
     private fun rebuildCaptureSurface() {
-        val localProjection = projection ?: return
         val localHandler = handler ?: return
+        val localProjection = projection ?: return
         if (rebuilding) return
         rebuilding = true
         try {
@@ -153,28 +153,37 @@ class ConverterProjectionService : Service() {
             if (width == currentCaptureWidth && height == currentCaptureHeight && dpi == currentDensityDpi && virtualDisplay != null) {
                 return
             }
-            releaseCaptureSurface()
-            FrameBus.clear()
             val reader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 3)
-            imageReader = reader
-            currentCaptureWidth = width
-            currentCaptureHeight = height
-            currentDensityDpi = dpi
             reader.setOnImageAvailableListener({ source ->
                 source.acquireLatestImage()?.use { image ->
                     publishImage(image)
                 }
             }, localHandler)
-            virtualDisplay = localProjection.createVirtualDisplay(
-                "ParallelEyeConverter",
-                width,
-                height,
-                dpi,
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                reader.surface,
-                null,
-                localHandler,
-            )
+            val oldReader = imageReader
+            imageReader = reader
+            reusableBitmap = null
+            reusableOutputBitmap = null
+            reusableOutputCanvas = null
+            if (virtualDisplay == null) {
+                virtualDisplay = localProjection.createVirtualDisplay(
+                    "ParallelEyeConverter",
+                    width,
+                    height,
+                    dpi,
+                    DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                    reader.surface,
+                    null,
+                    localHandler,
+                )
+            } else {
+                virtualDisplay?.resize(width, height, dpi)
+                virtualDisplay?.setSurface(reader.surface)
+            }
+            oldReader?.setOnImageAvailableListener(null, null)
+            oldReader?.close()
+            currentCaptureWidth = width
+            currentCaptureHeight = height
+            currentDensityDpi = dpi
         } finally {
             rebuilding = false
         }
