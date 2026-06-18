@@ -17,6 +17,7 @@ import android.os.IBinder
 import android.os.Looper
 import android.util.DisplayMetrics
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -33,6 +34,8 @@ class ConverterOverlayService : Service() {
     private lateinit var windowManager: WindowManager
     private var currentView: View? = null
     private var showingPlayer = false
+    private var floatingBallX = -1
+    private var floatingBallY = -1
     private val mainHandler = Handler(Looper.getMainLooper())
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -52,7 +55,12 @@ class ConverterOverlayService : Service() {
         super.onConfigurationChanged(newConfig)
         if (showingPlayer) {
             currentView?.let { view ->
-                val params = overlayParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT, opaque = true).apply {
+                val params = overlayParams(
+                    LayoutParams.MATCH_PARENT,
+                    LayoutParams.MATCH_PARENT,
+                    opaque = true,
+                    focusable = true,
+                ).apply {
                     gravity = Gravity.CENTER
                     x = 0
                     y = 0
@@ -69,13 +77,19 @@ class ConverterOverlayService : Service() {
         removeCurrentView()
         showingPlayer = false
         val size = dp(62)
+        if (floatingBallX < 0 || floatingBallY < 0) {
+            val (screenWidth, screenHeight) = realDisplaySize()
+            floatingBallX = (screenWidth - size - dp(18)).coerceAtLeast(0)
+            floatingBallY = dp(140).coerceIn(0, (screenHeight - size).coerceAtLeast(0))
+        }
         val ball = FloatingBallView(this).apply {
             setOnOpenRequested { openTargetThenShowPlayer() }
+            setOnMoveRequested { dx, dy -> moveFloatingBall(size, dx, dy) }
         }
         val params = overlayParams(size, size).apply {
-            gravity = Gravity.TOP or Gravity.END
-            x = dp(18)
-            y = dp(140)
+            gravity = Gravity.TOP or Gravity.START
+            x = floatingBallX
+            y = floatingBallY
         }
         currentView = ball
         windowManager.addView(ball, params)
@@ -84,15 +98,22 @@ class ConverterOverlayService : Service() {
     private fun showPlayer() {
         removeCurrentView()
         showingPlayer = true
-        val root = FrameLayout(this)
-        root.setBackgroundColor(Color.BLACK)
-        root.systemUiVisibility =
-            View.SYSTEM_UI_FLAG_FULLSCREEN or
-                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
-                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
-                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
-                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
-                View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+        val root = object : FrameLayout(this) {
+            override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+                if (event.keyCode == KeyEvent.KEYCODE_BACK) {
+                    if (event.action == KeyEvent.ACTION_UP) {
+                        showFloatingBall()
+                    }
+                    return true
+                }
+                return super.dispatchKeyEvent(event)
+            }
+        }.apply {
+            isFocusable = true
+            isFocusableInTouchMode = true
+            setBackgroundColor(Color.BLACK)
+            systemUiVisibility = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+        }
         lateinit var hideControlsRunnable: Runnable
         val controls = createControls(
             onMinimize = { showFloatingBall() },
@@ -122,13 +143,19 @@ class ConverterOverlayService : Service() {
             dp(58),
             Gravity.CENTER,
         ))
-        val params = overlayParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT, opaque = true).apply {
+        val params = overlayParams(
+            LayoutParams.MATCH_PARENT,
+            LayoutParams.MATCH_PARENT,
+            opaque = true,
+            focusable = true,
+        ).apply {
             gravity = Gravity.CENTER
             x = 0
             y = 0
         }
         currentView = root
         windowManager.addView(root, params)
+        root.requestFocus()
         showControlsTemporarily()
     }
 
@@ -204,16 +231,37 @@ class ConverterOverlayService : Service() {
         currentView = null
     }
 
-    private fun overlayParams(width: Int, height: Int, opaque: Boolean = false): LayoutParams {
+    private fun moveFloatingBall(size: Int, dx: Float, dy: Float) {
+        val view = currentView ?: return
+        val (screenWidth, screenHeight) = realDisplaySize()
+        floatingBallX = (floatingBallX + dx.toInt()).coerceIn(0, (screenWidth - size).coerceAtLeast(0))
+        floatingBallY = (floatingBallY + dy.toInt()).coerceIn(0, (screenHeight - size).coerceAtLeast(0))
+        val params = overlayParams(size, size).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = floatingBallX
+            y = floatingBallY
+        }
+        runCatching { windowManager.updateViewLayout(view, params) }
+    }
+
+    private fun overlayParams(
+        width: Int,
+        height: Int,
+        opaque: Boolean = false,
+        focusable: Boolean = false,
+    ): LayoutParams {
+        var flags = LayoutParams.FLAG_NOT_TOUCH_MODAL or LayoutParams.FLAG_LAYOUT_IN_SCREEN
+        if (!focusable) {
+            flags = flags or LayoutParams.FLAG_NOT_FOCUSABLE
+        }
+        if (!opaque) {
+            flags = flags or LayoutParams.FLAG_LAYOUT_NO_LIMITS
+        }
         return LayoutParams(
             width,
             height,
             LayoutParams.TYPE_APPLICATION_OVERLAY,
-            LayoutParams.FLAG_NOT_FOCUSABLE or
-                LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-                LayoutParams.FLAG_FULLSCREEN,
+            flags,
             if (opaque) PixelFormat.OPAQUE else PixelFormat.TRANSLUCENT,
         )
     }
@@ -254,12 +302,20 @@ private class FloatingBallView(context: Context) : View(context) {
         textAlign = Paint.Align.CENTER
     }
     private var onOpenRequested: (() -> Unit)? = null
+    private var onMoveRequested: ((Float, Float) -> Unit)? = null
     private var lastTapTime = 0L
     private var downX = 0f
     private var downY = 0f
+    private var lastRawX = 0f
+    private var lastRawY = 0f
+    private var moved = false
 
     fun setOnOpenRequested(listener: () -> Unit) {
         onOpenRequested = listener
+    }
+
+    fun setOnMoveRequested(listener: (Float, Float) -> Unit) {
+        onMoveRequested = listener
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -277,10 +333,27 @@ private class FloatingBallView(context: Context) : View(context) {
             MotionEvent.ACTION_DOWN -> {
                 downX = event.rawX
                 downY = event.rawY
+                lastRawX = event.rawX
+                lastRawY = event.rawY
+                moved = false
+                parent?.requestDisallowInterceptTouchEvent(true)
+                return true
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val dx = event.rawX - lastRawX
+                val dy = event.rawY - lastRawY
+                if (abs(event.rawX - downX) >= 12f || abs(event.rawY - downY) >= 12f) {
+                    moved = true
+                }
+                if (abs(dx) >= 1f || abs(dy) >= 1f) {
+                    onMoveRequested?.invoke(dx, dy)
+                    lastRawX = event.rawX
+                    lastRawY = event.rawY
+                }
                 return true
             }
             MotionEvent.ACTION_UP -> {
-                if (abs(event.rawX - downX) < 12f && abs(event.rawY - downY) < 12f) {
+                if (!moved && abs(event.rawX - downX) < 12f && abs(event.rawY - downY) < 12f) {
                     val now = System.currentTimeMillis()
                     if (now - lastTapTime < 360L) {
                         lastTapTime = 0L
