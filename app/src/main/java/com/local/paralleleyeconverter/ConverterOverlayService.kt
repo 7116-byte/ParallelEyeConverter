@@ -65,7 +65,7 @@ class ConverterOverlayService : Service() {
     }
 
     private fun showFloatingBall() {
-        ForegroundAppHelper.saveTargetPackage(this, ForegroundAppHelper.readForegroundPackage(this))
+        ForegroundAppHelper.saveTargetPackage(this, ForegroundAppHelper.readLastTargetCandidatePackage(this))
         removeCurrentView()
         showingPlayer = false
         val size = dp(62)
@@ -134,13 +134,14 @@ class ConverterOverlayService : Service() {
 
     private fun openTargetThenShowPlayer() {
         val targetPackage = ForegroundAppHelper.readTargetPackage(this)
+            ?: ForegroundAppHelper.readLastTargetCandidatePackage(this)
         val currentPackage = ForegroundAppHelper.readForegroundPackage(this)
-        if (!targetPackage.isNullOrBlank() && currentPackage != null && currentPackage != targetPackage) {
+        if (!targetPackage.isNullOrBlank() && currentPackage != targetPackage) {
             val launchIntent = packageManager.getLaunchIntentForPackage(targetPackage)
             if (launchIntent != null) {
                 launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
                 startActivity(launchIntent)
-                mainHandler.postDelayed({ showPlayer() }, 450L)
+                mainHandler.postDelayed({ showPlayer() }, 700L)
                 return
             }
         }
