@@ -52,8 +52,7 @@ class ConverterOverlayService : Service() {
         super.onConfigurationChanged(newConfig)
         if (showingPlayer) {
             currentView?.let { view ->
-                val (screenWidth, screenHeight) = realDisplaySize()
-                val params = overlayParams(screenWidth, screenHeight).apply {
+                val params = overlayParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT, opaque = true).apply {
                     gravity = Gravity.CENTER
                     x = 0
                     y = 0
@@ -98,8 +97,7 @@ class ConverterOverlayService : Service() {
         val controls = createControls(
             onMinimize = { showFloatingBall() },
             onMaximize = {
-                refreshPlayerLayout(root)
-                (root.getChildAt(0) as? ConverterSbsView)?.resetZoom()
+                openHomePage()
             },
             onClose = {
                 stopService(Intent(this@ConverterOverlayService, ConverterProjectionService::class.java).setAction(ConverterProjectionService.ACTION_STOP))
@@ -109,7 +107,7 @@ class ConverterOverlayService : Service() {
         fun showControlsTemporarily() {
             controls.visibility = View.VISIBLE
             mainHandler.removeCallbacks(hideControlsRunnable)
-            mainHandler.postDelayed(hideControlsRunnable, 3000L)
+            mainHandler.postDelayed(hideControlsRunnable, 2000L)
         }
         hideControlsRunnable = Runnable { controls.visibility = View.GONE }
         val sbsView = ConverterSbsView(this).apply {
@@ -124,8 +122,7 @@ class ConverterOverlayService : Service() {
             dp(58),
             Gravity.CENTER,
         ))
-        val (screenWidth, screenHeight) = realDisplaySize()
-        val params = overlayParams(screenWidth, screenHeight).apply {
+        val params = overlayParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT, opaque = true).apply {
             gravity = Gravity.CENTER
             x = 0
             y = 0
@@ -150,16 +147,11 @@ class ConverterOverlayService : Service() {
         showPlayer()
     }
 
-    private fun refreshPlayerLayout(view: View) {
-        val (screenWidth, screenHeight) = realDisplaySize()
-        val params = overlayParams(screenWidth, screenHeight).apply {
-            gravity = Gravity.CENTER
-            x = 0
-            y = 0
-        }
-        runCatching { windowManager.updateViewLayout(view, params) }
-        view.requestLayout()
-        view.invalidate()
+    private fun openHomePage() {
+        showFloatingBall()
+        startActivity(Intent(this, MainActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+        })
     }
 
     private fun createControls(onMinimize: () -> Unit, onMaximize: () -> Unit, onClose: () -> Unit): View {
@@ -211,7 +203,7 @@ class ConverterOverlayService : Service() {
         currentView = null
     }
 
-    private fun overlayParams(width: Int, height: Int): LayoutParams {
+    private fun overlayParams(width: Int, height: Int, opaque: Boolean = false): LayoutParams {
         return LayoutParams(
             width,
             height,
@@ -221,7 +213,7 @@ class ConverterOverlayService : Service() {
                 LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 LayoutParams.FLAG_LAYOUT_NO_LIMITS or
                 LayoutParams.FLAG_FULLSCREEN,
-            PixelFormat.TRANSLUCENT,
+            if (opaque) PixelFormat.OPAQUE else PixelFormat.TRANSLUCENT,
         )
     }
 
