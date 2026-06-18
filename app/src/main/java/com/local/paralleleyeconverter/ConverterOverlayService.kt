@@ -4,6 +4,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
+import android.hardware.display.DisplayManager
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -36,6 +37,9 @@ class ConverterOverlayService : Service() {
     private var showingPlayer = false
     private var floatingBallX = -1
     private var floatingBallY = -1
+    private var floatingBallHalfHidden = false
+    private var floatingBallIdleRunnable: Runnable? = null
+    private var displayListener: DisplayManager.DisplayListener? = null
     private val mainHandler = Handler(Looper.getMainLooper())
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -43,16 +47,49 @@ class ConverterOverlayService : Service() {
     override fun onCreate() {
         super.onCreate()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        registerDisplayListener()
         showPlayer()
     }
 
     override fun onDestroy() {
+        unregisterDisplayListener()
+        cancelFloatingBallIdle()
         removeCurrentView()
         super.onDestroy()
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
+        refreshCurrentOverlayLayout()
+    }
+
+    private fun registerDisplayListener() {
+        val displayManager = getSystemService(DisplayManager::class.java)
+        val listener = object : DisplayManager.DisplayListener {
+            override fun onDisplayAdded(displayId: Int) = Unit
+
+            override fun onDisplayRemoved(displayId: Int) = Unit
+
+            override fun onDisplayChanged(displayId: Int) {
+                mainHandler.removeCallbacksAndMessages(DISPLAY_REFRESH_TOKEN)
+                mainHandler.postAtTime(
+                    { refreshCurrentOverlayLayout() },
+                    DISPLAY_REFRESH_TOKEN,
+                    android.os.SystemClock.uptimeMillis() + 250L,
+                )
+            }
+        }
+        displayListener = listener
+        displayManager.registerDisplayListener(listener, mainHandler)
+    }
+
+    private fun unregisterDisplayListener() {
+        val listener = displayListener ?: return
+        runCatching { getSystemService(DisplayManager::class.java).unregisterDisplayListener(listener) }
+        displayListener = null
+    }
+
+    private fun refreshCurrentOverlayLayout() {
         if (showingPlayer) {
             currentView?.let { view ->
                 val params = overlayParams(
@@ -69,6 +106,10 @@ class ConverterOverlayService : Service() {
                 view.requestLayout()
                 view.invalidate()
             }
+        } else {
+            val size = dp(62)
+            clampFloatingBall(size, allowHalfHidden = floatingBallHalfHidden)
+            updateFloatingBallLayout(size)
         }
     }
 
@@ -82,9 +123,14 @@ class ConverterOverlayService : Service() {
             floatingBallX = (screenWidth - size - dp(18)).coerceAtLeast(0)
             floatingBallY = dp(140).coerceIn(0, (screenHeight - size).coerceAtLeast(0))
         }
+        floatingBallHalfHidden = false
+        clampFloatingBall(size, allowHalfHidden = false)
         val ball = FloatingBallView(this).apply {
+            alpha = 1f
             setOnOpenRequested { openTargetThenShowPlayer() }
+            setOnTouchStarted { revealFloatingBall(size) }
             setOnMoveRequested { dx, dy -> moveFloatingBall(size, dx, dy) }
+            setOnTouchFinished { scheduleFloatingBallIdle(size) }
         }
         val params = overlayParams(size, size).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -93,9 +139,11 @@ class ConverterOverlayService : Service() {
         }
         currentView = ball
         windowManager.addView(ball, params)
+        scheduleFloatingBallIdle(size)
     }
 
     private fun showPlayer() {
+        cancelFloatingBallIdle()
         removeCurrentView()
         showingPlayer = true
         val root = object : FrameLayout(this) {
@@ -232,10 +280,65 @@ class ConverterOverlayService : Service() {
     }
 
     private fun moveFloatingBall(size: Int, dx: Float, dy: Float) {
-        val view = currentView ?: return
+        floatingBallHalfHidden = false
+        floatingBallX += dx.toInt()
+        floatingBallY += dy.toInt()
+        clampFloatingBall(size, allowHalfHidden = false)
+        updateFloatingBallLayout(size)
+    }
+
+    private fun revealFloatingBall(size: Int) {
+        cancelFloatingBallIdle()
+        floatingBallHalfHidden = false
+        currentView?.alpha = 1f
+        clampFloatingBall(size, allowHalfHidden = false)
+        updateFloatingBallLayout(size)
+    }
+
+    private fun scheduleFloatingBallIdle(size: Int) {
+        cancelFloatingBallIdle()
+        val runnable = Runnable {
+            if (!showingPlayer && currentView != null) {
+                hideFloatingBallPartially(size)
+            }
+        }
+        floatingBallIdleRunnable = runnable
+        mainHandler.postDelayed(runnable, 3000L)
+    }
+
+    private fun cancelFloatingBallIdle() {
+        floatingBallIdleRunnable?.let { mainHandler.removeCallbacks(it) }
+        floatingBallIdleRunnable = null
+    }
+
+    private fun hideFloatingBallPartially(size: Int) {
         val (screenWidth, screenHeight) = realDisplaySize()
-        floatingBallX = (floatingBallX + dx.toInt()).coerceIn(0, (screenWidth - size).coerceAtLeast(0))
-        floatingBallY = (floatingBallY + dy.toInt()).coerceIn(0, (screenHeight - size).coerceAtLeast(0))
+        val maxY = (screenHeight - size).coerceAtLeast(0)
+        floatingBallY = floatingBallY.coerceIn(0, maxY)
+        floatingBallX = if (floatingBallX + size / 2 < screenWidth / 2) {
+            -size / 2
+        } else {
+            screenWidth - size / 2
+        }
+        floatingBallHalfHidden = true
+        currentView?.alpha = 0.7f
+        updateFloatingBallLayout(size)
+    }
+
+    private fun clampFloatingBall(size: Int, allowHalfHidden: Boolean) {
+        val (screenWidth, screenHeight) = realDisplaySize()
+        val minX = if (allowHalfHidden) -size / 2 else 0
+        val maxX = if (allowHalfHidden) {
+            screenWidth - size / 2
+        } else {
+            (screenWidth - size).coerceAtLeast(0)
+        }
+        floatingBallX = floatingBallX.coerceIn(minX, maxX.coerceAtLeast(minX))
+        floatingBallY = floatingBallY.coerceIn(0, (screenHeight - size).coerceAtLeast(0))
+    }
+
+    private fun updateFloatingBallLayout(size: Int) {
+        val view = currentView ?: return
         val params = overlayParams(size, size).apply {
             gravity = Gravity.TOP or Gravity.START
             x = floatingBallX
@@ -302,7 +405,9 @@ private class FloatingBallView(context: Context) : View(context) {
         textAlign = Paint.Align.CENTER
     }
     private var onOpenRequested: (() -> Unit)? = null
+    private var onTouchStarted: (() -> Unit)? = null
     private var onMoveRequested: ((Float, Float) -> Unit)? = null
+    private var onTouchFinished: (() -> Unit)? = null
     private var lastTapTime = 0L
     private var downX = 0f
     private var downY = 0f
@@ -314,8 +419,16 @@ private class FloatingBallView(context: Context) : View(context) {
         onOpenRequested = listener
     }
 
+    fun setOnTouchStarted(listener: () -> Unit) {
+        onTouchStarted = listener
+    }
+
     fun setOnMoveRequested(listener: (Float, Float) -> Unit) {
         onMoveRequested = listener
+    }
+
+    fun setOnTouchFinished(listener: () -> Unit) {
+        onTouchFinished = listener
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -331,6 +444,7 @@ private class FloatingBallView(context: Context) : View(context) {
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                onTouchStarted?.invoke()
                 downX = event.rawX
                 downY = event.rawY
                 lastRawX = event.rawX
@@ -362,12 +476,19 @@ private class FloatingBallView(context: Context) : View(context) {
                         lastTapTime = now
                     }
                 }
+                onTouchFinished?.invoke()
+                return true
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                onTouchFinished?.invoke()
                 return true
             }
         }
         return true
     }
 }
+
+private val DISPLAY_REFRESH_TOKEN = Any()
 
 private class ConverterSbsView(context: Context) : View(context) {
     private val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
