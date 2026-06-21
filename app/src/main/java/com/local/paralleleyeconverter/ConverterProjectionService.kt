@@ -96,6 +96,7 @@ class ConverterProjectionService : Service() {
         projection?.stop()
         projection = null
         handlerThread?.quitSafely()
+        DepthProcessor.reset()
         FrameBus.clear()
         super.onDestroy()
     }
@@ -240,6 +241,7 @@ class ConverterProjectionService : Service() {
         val canvas = reusableOutputCanvas ?: Canvas(output).also { reusableOutputCanvas = it }
         canvas.drawBitmap(source, Rect(0, 0, width, height), Rect(0, 0, width, height), null)
         FrameBus.publish(output)
+        DepthProcessor.processFrame(this, output, FrameBus.frameVersion)
     }
 
     private fun startAsForeground() {

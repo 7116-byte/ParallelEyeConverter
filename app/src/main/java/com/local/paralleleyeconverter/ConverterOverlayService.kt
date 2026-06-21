@@ -38,6 +38,8 @@ class ConverterOverlayService : Service() {
     private var floatingBallX = -1
     private var floatingBallY = -1
     private var floatingBallHalfHidden = false
+    private var floatingBallEdge = 1
+    private var floatingBallYRatio = 0.18f
     private var floatingBallIdleRunnable: Runnable? = null
     private var displayListener: DisplayManager.DisplayListener? = null
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -108,13 +110,17 @@ class ConverterOverlayService : Service() {
             }
         } else {
             val size = dp(62)
-            clampFloatingBall(size, allowHalfHidden = floatingBallHalfHidden)
-            updateFloatingBallLayout(size)
+            if (floatingBallHalfHidden) {
+                restoreHalfHiddenFloatingBall(size)
+            } else {
+                clampFloatingBall(size, allowHalfHidden = false)
+                updateFloatingBallLayout(size)
+                scheduleFloatingBallIdle(size)
+            }
         }
     }
 
     private fun showFloatingBall() {
-        ForegroundAppHelper.saveTargetPackage(this, ForegroundAppHelper.readLastTargetCandidatePackage(this))
         removeCurrentView()
         showingPlayer = false
         val size = dp(62)
@@ -209,7 +215,6 @@ class ConverterOverlayService : Service() {
 
     private fun openTargetThenShowPlayer() {
         val targetPackage = ForegroundAppHelper.readTargetPackage(this)
-            ?: ForegroundAppHelper.readLastTargetCandidatePackage(this)
         val currentPackage = ForegroundAppHelper.readForegroundPackage(this)
         if (!targetPackage.isNullOrBlank() && currentPackage != targetPackage) {
             val launchIntent = packageManager.getLaunchIntentForPackage(targetPackage)
@@ -284,6 +289,7 @@ class ConverterOverlayService : Service() {
         floatingBallX += dx.toInt()
         floatingBallY += dy.toInt()
         clampFloatingBall(size, allowHalfHidden = false)
+        updateFloatingBallEdgeAndRatio(size)
         updateFloatingBallLayout(size)
     }
 
@@ -292,6 +298,7 @@ class ConverterOverlayService : Service() {
         floatingBallHalfHidden = false
         currentView?.alpha = 1f
         clampFloatingBall(size, allowHalfHidden = false)
+        updateFloatingBallEdgeAndRatio(size)
         updateFloatingBallLayout(size)
     }
 
@@ -315,7 +322,9 @@ class ConverterOverlayService : Service() {
         val (screenWidth, screenHeight) = realDisplaySize()
         val maxY = (screenHeight - size).coerceAtLeast(0)
         floatingBallY = floatingBallY.coerceIn(0, maxY)
-        floatingBallX = if (floatingBallX + size / 2 < screenWidth / 2) {
+        floatingBallEdge = if (floatingBallX + size / 2 < screenWidth / 2) -1 else 1
+        floatingBallYRatio = if (maxY > 0) floatingBallY.toFloat() / maxY else 0f
+        floatingBallX = if (floatingBallEdge < 0) {
             -size / 2
         } else {
             screenWidth - size / 2
@@ -323,6 +332,27 @@ class ConverterOverlayService : Service() {
         floatingBallHalfHidden = true
         currentView?.alpha = 0.7f
         updateFloatingBallLayout(size)
+    }
+
+    private fun restoreHalfHiddenFloatingBall(size: Int) {
+        val (screenWidth, screenHeight) = realDisplaySize()
+        val maxY = (screenHeight - size).coerceAtLeast(0)
+        floatingBallY = (floatingBallYRatio * maxY).toInt().coerceIn(0, maxY)
+        floatingBallX = if (floatingBallEdge < 0) {
+            -size / 2
+        } else {
+            screenWidth - size / 2
+        }
+        floatingBallHalfHidden = true
+        currentView?.alpha = 0.7f
+        updateFloatingBallLayout(size)
+    }
+
+    private fun updateFloatingBallEdgeAndRatio(size: Int) {
+        val (screenWidth, screenHeight) = realDisplaySize()
+        val maxY = (screenHeight - size).coerceAtLeast(0)
+        floatingBallEdge = if (floatingBallX + size / 2 < screenWidth / 2) -1 else 1
+        floatingBallYRatio = if (maxY > 0) floatingBallY.toFloat() / maxY else 0f
     }
 
     private fun clampFloatingBall(size: Int, allowHalfHidden: Boolean) {
@@ -492,6 +522,7 @@ private val DISPLAY_REFRESH_TOKEN = Any()
 
 private class ConverterSbsView(context: Context) : View(context) {
     private val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
+    private val stereoRenderer = StereoFrameRenderer()
     private val dividerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.BLACK
         strokeWidth = 3f * context.resources.displayMetrics.density
@@ -501,6 +532,11 @@ private class ConverterSbsView(context: Context) : View(context) {
         textSize = 30f * context.resources.displayMetrics.scaledDensity
         textAlign = Paint.Align.CENTER
     }
+    private val debugPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(230, 31, 230, 168)
+        textSize = 13f * context.resources.displayMetrics.scaledDensity
+        typeface = Typeface.MONOSPACE
+    }
     private var zoom = 1f
     private var pinchStartDistance = 0f
     private var pinchStartZoom = 1f
@@ -508,6 +544,9 @@ private class ConverterSbsView(context: Context) : View(context) {
     private var downY = 0f
     private var pinching = false
     private var onTap: (() -> Unit)? = null
+    private var fpsWindowStart = android.os.SystemClock.elapsedRealtime()
+    private var fpsFrames = 0
+    private var currentFps = 0
 
     fun setOnTap(listener: () -> Unit) {
         onTap = listener
@@ -527,11 +566,25 @@ private class ConverterSbsView(context: Context) : View(context) {
             canvas.drawText("\u7b49\u5f85\u5f55\u5c4f\u753b\u9762...", width / 2f, height / 2f, textPaint)
         } else {
             val eyeWidth = width / 2f
-            drawEye(canvas, frame, 0f, eyeWidth)
-            drawEye(canvas, frame, eyeWidth, eyeWidth)
+            if (AppSettings.true3dEnabled(context)) {
+                val depth = DepthBus.latestDepth
+                val depthVersion = DepthBus.depthVersion
+                val frameVersion = FrameBus.frameVersion
+                val disparity = AppSettings.disparity(context)
+                val leftEye = stereoRenderer.renderEye(frame, frameVersion, depth, depthVersion, disparity, rightEye = false)
+                val rightEye = stereoRenderer.renderEye(frame, frameVersion, depth, depthVersion, disparity, rightEye = true)
+                drawEye(canvas, leftEye, 0f, eyeWidth)
+                drawEye(canvas, rightEye, eyeWidth, eyeWidth)
+                drawDebug(canvas)
+            } else {
+                stereoRenderer.clear()
+                drawEye(canvas, frame, 0f, eyeWidth)
+                drawEye(canvas, frame, eyeWidth, eyeWidth)
+            }
         }
         val centerX = width / 2f
         canvas.drawLine(centerX, 0f, centerX, height.toFloat(), dividerPaint)
+        updateFps()
         postInvalidateOnAnimation()
     }
 
@@ -592,5 +645,30 @@ private class ConverterSbsView(context: Context) : View(context) {
         val dx = event.getX(0) - event.getX(1)
         val dy = event.getY(0) - event.getY(1)
         return sqrt(dx * dx + dy * dy)
+    }
+
+    private fun updateFps() {
+        fpsFrames++
+        val now = android.os.SystemClock.elapsedRealtime()
+        val elapsed = now - fpsWindowStart
+        if (elapsed >= 1000L) {
+            currentFps = (fpsFrames * 1000L / elapsed).toInt()
+            fpsFrames = 0
+            fpsWindowStart = now
+        }
+    }
+
+    private fun drawDebug(canvas: Canvas) {
+        val lines = listOf(
+            "FPS $currentFps",
+            "3D ${AppSettings.modelName(context)} ${AppSettings.perfLabel(context)} x${AppSettings.inferenceInterval(context)}",
+            "disp ${"%.1f".format(AppSettings.disparity(context))} res ${AppSettings.resolutionLabel(context)}",
+            DepthBus.lastStatus,
+        )
+        var y = 24f * resources.displayMetrics.density
+        for (line in lines) {
+            canvas.drawText(line, 16f * resources.displayMetrics.density, y, debugPaint)
+            y += 17f * resources.displayMetrics.density
+        }
     }
 }

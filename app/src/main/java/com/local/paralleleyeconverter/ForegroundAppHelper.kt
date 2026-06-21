@@ -73,6 +73,10 @@ object ForegroundAppHelper {
             .apply()
     }
 
+    fun markInitialTargetPackage(context: Context) {
+        saveTargetPackage(context, readLastTargetCandidatePackage(context))
+    }
+
     fun readTargetPackage(context: Context): String? {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .getString(KEY_TARGET_PACKAGE, null)

@@ -18,6 +18,7 @@ class CapturePermissionActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == this.requestCode && resultCode == RESULT_OK && data != null) {
+            ForegroundAppHelper.markInitialTargetPackage(this)
             val service = Intent(this, ConverterProjectionService::class.java)
                 .putExtra(ConverterProjectionService.EXTRA_RESULT_CODE, resultCode)
                 .putExtra(ConverterProjectionService.EXTRA_RESULT_DATA, data)

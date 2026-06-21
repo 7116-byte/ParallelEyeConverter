@@ -13,13 +13,17 @@ android {
         applicationId = "com.local.paralleleyeconverter"
         minSdk = 26
         targetSdk = 35
-        versionCode = 12
-        versionName = "0.1.11"
+        versionCode = 13
+        versionName = "0.1.12"
 
     }
 
     buildFeatures {
         buildConfig = false
+    }
+
+    androidResources {
+        noCompress += "tflite"
     }
 }
 
@@ -34,4 +38,6 @@ kotlin {
     jvmToolchain(17)
 }
 
-dependencies {}
+dependencies {
+    implementation("org.tensorflow:tensorflow-lite:2.16.1")
+}

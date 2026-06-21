@@ -23,7 +23,7 @@ import java.net.URL
 
 private const val GITHUB_OWNER = "7116-byte"
 private const val GITHUB_REPO = "ParallelEyeConverter"
-private const val CURRENT_VERSION = "0.1.11"
+private const val CURRENT_VERSION = "0.1.12"
 
 private const val TEXT_APP_NAME = "\u5b9e\u65f6\u5e73\u884c\u773c\u8f6c\u5316"
 private const val TEXT_SUBTITLE = "\u5f55\u5c4f\u6355\u83b7  /  \u60ac\u6d6e\u7403  /  \u5de6\u53f3\u773c\u8f93\u51fa"
@@ -44,6 +44,7 @@ private const val TEXT_CHECKING = "\u6b63\u5728\u68c0\u67e5\u66f4\u65b0..."
 class MainActivity : Activity() {
     private lateinit var statusText: TextView
     private lateinit var downloadButton: Button
+    private lateinit var settingsText: TextView
     private var updateUrl: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -131,6 +132,8 @@ class MainActivity : Activity() {
             }
         }, fullWidthParams(top = dp(12), height = dp(50)))
 
+        add3dSettings(content)
+
         content.addView(TextView(this).apply {
             text = "v$CURRENT_VERSION"
             textSize = 13f
@@ -139,6 +142,75 @@ class MainActivity : Activity() {
         }, fullWidthParams(top = dp(22)))
 
         return root
+    }
+
+    private fun add3dSettings(content: LinearLayout) {
+        settingsText = TextView(this).apply {
+            textSize = 14f
+            setTextColor(Color.rgb(199, 211, 224))
+            gravity = Gravity.CENTER
+            background = roundedStroke(Color.rgb(21, 29, 39), Color.rgb(52, 67, 82), dp(12))
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+        }
+        content.addView(settingsText, fullWidthParams(top = dp(14)))
+
+        val row1 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        row1.addView(secondaryButton("\u771f 3D").apply {
+            setOnClickListener {
+                AppSettings.setTrue3dEnabled(this@MainActivity, !AppSettings.true3dEnabled(this@MainActivity))
+                refreshSettingsText()
+            }
+        }, weightedParams(end = dp(6)))
+        row1.addView(secondaryButton("\u6a21\u578b").apply {
+            setOnClickListener {
+                AppSettings.setDepthAnythingEnabled(this@MainActivity, !AppSettings.depthAnythingEnabled(this@MainActivity))
+                refreshSettingsText()
+            }
+        }, weightedParams(start = dp(6)))
+        content.addView(row1, fullWidthParams(top = dp(10), height = dp(48)))
+
+        val row2 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        row2.addView(secondaryButton("\u6027\u80fd\u6863").apply {
+            setOnClickListener {
+                val next = (AppSettings.perfMode(this@MainActivity) + 1) % 3
+                AppSettings.setPerfMode(this@MainActivity, next)
+                refreshSettingsText()
+            }
+        }, weightedParams(end = dp(6)))
+        row2.addView(secondaryButton("\u6df1\u5ea6\u5206\u8fa8\u7387").apply {
+            setOnClickListener {
+                val next = (AppSettings.depthResolutionMode(this@MainActivity) + 1) % 4
+                AppSettings.setDepthResolutionMode(this@MainActivity, next)
+                refreshSettingsText()
+            }
+        }, weightedParams(start = dp(6)))
+        content.addView(row2, fullWidthParams(top = dp(10), height = dp(48)))
+
+        val row3 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        row3.addView(secondaryButton("\u89c6\u5dee -").apply {
+            setOnClickListener {
+                AppSettings.setDisparity(this@MainActivity, AppSettings.disparity(this@MainActivity) - 0.2f)
+                refreshSettingsText()
+            }
+        }, weightedParams(end = dp(6)))
+        row3.addView(secondaryButton("\u89c6\u5dee +").apply {
+            setOnClickListener {
+                AppSettings.setDisparity(this@MainActivity, AppSettings.disparity(this@MainActivity) + 0.2f)
+                refreshSettingsText()
+            }
+        }, weightedParams(start = dp(6)))
+        content.addView(row3, fullWidthParams(top = dp(10), height = dp(48)))
+        refreshSettingsText()
+    }
+
+    private fun refreshSettingsText() {
+        val enabled = if (AppSettings.true3dEnabled(this)) "\u5f00" else "\u5173"
+        settingsText.text =
+            "\u771f 3D\uff1a$enabled\n" +
+                "\u6a21\u578b\uff1a${AppSettings.modelName(this)}\n" +
+                "\u6027\u80fd\uff1a${AppSettings.perfLabel(this)}\n" +
+                "\u6df1\u5ea6\u5206\u8fa8\u7387\uff1a${AppSettings.resolutionLabel(this)}\n" +
+                "\u89c6\u5dee\uff1a${"%.1f".format(AppSettings.disparity(this))}"
     }
 
     private fun primaryButton(label: String): Button {
