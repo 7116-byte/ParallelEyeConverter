@@ -184,7 +184,7 @@ class ConverterOverlayService : Service() {
                 openHomePage()
             },
             onDisplayModeToggle = {
-                if (sbsView.toggleDisplayMode()) "\u7ad6" else "\u6a2a"
+                if (sbsView.toggleDisplayMode()) "\u6a2a" else "\u7ad6"
             },
             onClose = {
                 stopService(Intent(this@ConverterOverlayService, ConverterProjectionService::class.java).setAction(ConverterProjectionService.ACTION_STOP))
@@ -248,22 +248,22 @@ class ConverterOverlayService : Service() {
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            background = rounded(Color.argb(190, 20, 24, 31), dp(29))
+            background = rounded(Color.argb(64, 20, 24, 31), dp(29))
             setPadding(dp(10), dp(6), dp(10), dp(6))
         }
-        val minus = controlButton("\u2212", Color.argb(235, 255, 255, 255), Color.rgb(28, 35, 44)).apply {
+        val minus = controlButton("\u2212", Color.argb(128, 255, 255, 255), Color.rgb(28, 35, 44)).apply {
             setOnClickListener { onMinimize() }
         }
-        val max = controlButton("\u25a1", Color.argb(235, 255, 255, 255), Color.rgb(28, 35, 44)).apply {
+        val max = controlButton("\u25a1", Color.argb(128, 255, 255, 255), Color.rgb(28, 35, 44)).apply {
             setOnClickListener { onMaximize() }
         }
-        val displayMode = controlButton("\u6a2a", Color.argb(235, 255, 255, 255), Color.rgb(28, 35, 44)).apply {
+        val displayMode = controlButton("\u7ad6", Color.argb(128, 255, 255, 255), Color.rgb(28, 35, 44)).apply {
             textSize = 22f
             setOnClickListener {
                 text = onDisplayModeToggle()
             }
         }
-        val close = controlButton("\u00d7", Color.rgb(0, 210, 130), Color.WHITE).apply {
+        val close = controlButton("\u00d7", Color.argb(128, 0, 210, 130), Color.WHITE).apply {
             setOnClickListener { onClose() }
         }
         val buttonParams = LinearLayout.LayoutParams(dp(46), dp(46)).apply {
