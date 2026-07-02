@@ -169,25 +169,29 @@ class ConverterOverlayService : Service() {
             systemUiVisibility = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
         }
         lateinit var hideControlsRunnable: Runnable
-        val controls = createControls(
+        lateinit var controls: View
+        fun showControlsTemporarily() {
+            controls.visibility = View.VISIBLE
+            mainHandler.removeCallbacks(hideControlsRunnable)
+            mainHandler.postDelayed(hideControlsRunnable, 2000L)
+        }
+        val sbsView = ConverterSbsView(this).apply {
+            setOnTap { showControlsTemporarily() }
+        }
+        controls = createControls(
             onMinimize = { showFloatingBall() },
             onMaximize = {
                 openHomePage()
+            },
+            onDisplayModeToggle = {
+                if (sbsView.toggleDisplayMode()) "\u7ad6" else "\u6a2a"
             },
             onClose = {
                 stopService(Intent(this@ConverterOverlayService, ConverterProjectionService::class.java).setAction(ConverterProjectionService.ACTION_STOP))
                 stopSelf()
             },
         )
-        fun showControlsTemporarily() {
-            controls.visibility = View.VISIBLE
-            mainHandler.removeCallbacks(hideControlsRunnable)
-            mainHandler.postDelayed(hideControlsRunnable, 2000L)
-        }
         hideControlsRunnable = Runnable { controls.visibility = View.GONE }
-        val sbsView = ConverterSbsView(this).apply {
-            setOnTap { showControlsTemporarily() }
-        }
         root.addView(sbsView, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -235,7 +239,12 @@ class ConverterOverlayService : Service() {
         })
     }
 
-    private fun createControls(onMinimize: () -> Unit, onMaximize: () -> Unit, onClose: () -> Unit): View {
+    private fun createControls(
+        onMinimize: () -> Unit,
+        onMaximize: () -> Unit,
+        onDisplayModeToggle: () -> String,
+        onClose: () -> Unit,
+    ): View {
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
@@ -247,6 +256,12 @@ class ConverterOverlayService : Service() {
         }
         val max = controlButton("\u25a1", Color.argb(235, 255, 255, 255), Color.rgb(28, 35, 44)).apply {
             setOnClickListener { onMaximize() }
+        }
+        val displayMode = controlButton("\u6a2a", Color.argb(235, 255, 255, 255), Color.rgb(28, 35, 44)).apply {
+            textSize = 22f
+            setOnClickListener {
+                text = onDisplayModeToggle()
+            }
         }
         val close = controlButton("\u00d7", Color.rgb(0, 210, 130), Color.WHITE).apply {
             setOnClickListener { onClose() }
@@ -260,11 +275,15 @@ class ConverterOverlayService : Service() {
             marginStart = dp(4)
             marginEnd = dp(4)
         })
+        panel.addView(displayMode, LinearLayout.LayoutParams(dp(46), dp(46)).apply {
+            marginStart = dp(4)
+            marginEnd = dp(4)
+        })
         panel.addView(close, LinearLayout.LayoutParams(dp(46), dp(46)).apply {
             marginStart = dp(4)
             marginEnd = dp(4)
         })
-        panel.layoutParams = ViewGroup.LayoutParams(dp(170), dp(58))
+        panel.layoutParams = ViewGroup.LayoutParams(dp(224), dp(58))
         return panel
     }
 
@@ -547,9 +566,20 @@ private class ConverterSbsView(context: Context) : View(context) {
     private var fpsWindowStart = android.os.SystemClock.elapsedRealtime()
     private var fpsFrames = 0
     private var currentFps = 0
+    private var displayMode = DisplayMode.LANDSCAPE
 
     fun setOnTap(listener: () -> Unit) {
         onTap = listener
+    }
+
+    fun toggleDisplayMode(): Boolean {
+        displayMode = if (displayMode == DisplayMode.LANDSCAPE) {
+            DisplayMode.HEIGHT_FILL
+        } else {
+            DisplayMode.LANDSCAPE
+        }
+        resetZoom()
+        return displayMode == DisplayMode.HEIGHT_FILL
     }
 
     fun resetZoom() {
@@ -589,7 +619,10 @@ private class ConverterSbsView(context: Context) : View(context) {
     }
 
     private fun drawEye(canvas: Canvas, frame: android.graphics.Bitmap, left: Float, eyeWidth: Float) {
-        val scale = eyeWidth / frame.width * zoom
+        val scale = when (displayMode) {
+            DisplayMode.LANDSCAPE -> eyeWidth / frame.width
+            DisplayMode.HEIGHT_FILL -> height.toFloat() / frame.height
+        } * zoom
         val drawWidth = frame.width * scale
         val drawHeight = frame.height * scale
         val dx = left + (eyeWidth - drawWidth) / 2f
@@ -671,4 +704,9 @@ private class ConverterSbsView(context: Context) : View(context) {
             y += 17f * resources.displayMetrics.density
         }
     }
+}
+
+private enum class DisplayMode {
+    LANDSCAPE,
+    HEIGHT_FILL,
 }
