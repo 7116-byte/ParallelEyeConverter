@@ -170,6 +170,7 @@ class ConverterOverlayService : Service() {
         }
         lateinit var hideControlsRunnable: Runnable
         lateinit var controls: View
+        lateinit var controlsPanel: ControlPanel
         fun showControlsTemporarily() {
             controls.visibility = View.VISIBLE
             mainHandler.removeCallbacks(hideControlsRunnable)
@@ -177,20 +178,25 @@ class ConverterOverlayService : Service() {
         }
         val sbsView = ConverterSbsView(this).apply {
             setOnTap { showControlsTemporarily() }
+            setOnDisplayModeChanged { heightFill ->
+                controlsPanel.displayModeButton.text = if (heightFill) "\u6a2a" else "\u7ad6"
+                showControlsTemporarily()
+            }
         }
-        controls = createControls(
+        controlsPanel = createControls(
             onMinimize = { showFloatingBall() },
             onMaximize = {
                 openHomePage()
             },
             onDisplayModeToggle = {
-                if (sbsView.toggleDisplayMode()) "\u6a2a" else "\u7ad6"
+                sbsView.toggleDisplayMode()
             },
             onClose = {
                 stopService(Intent(this@ConverterOverlayService, ConverterProjectionService::class.java).setAction(ConverterProjectionService.ACTION_STOP))
                 stopSelf()
             },
         )
+        controls = controlsPanel.view
         hideControlsRunnable = Runnable { controls.visibility = View.GONE }
         root.addView(sbsView, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -242,9 +248,9 @@ class ConverterOverlayService : Service() {
     private fun createControls(
         onMinimize: () -> Unit,
         onMaximize: () -> Unit,
-        onDisplayModeToggle: () -> String,
+        onDisplayModeToggle: () -> Boolean,
         onClose: () -> Unit,
-    ): View {
+    ): ControlPanel {
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
@@ -260,7 +266,7 @@ class ConverterOverlayService : Service() {
         val displayMode = controlButton("\u7ad6", Color.argb(128, 255, 255, 255), Color.rgb(28, 35, 44)).apply {
             textSize = 22f
             setOnClickListener {
-                text = onDisplayModeToggle()
+                text = if (onDisplayModeToggle()) "\u6a2a" else "\u7ad6"
             }
         }
         val close = controlButton("\u00d7", Color.argb(128, 0, 210, 130), Color.WHITE).apply {
@@ -284,7 +290,7 @@ class ConverterOverlayService : Service() {
             marginEnd = dp(4)
         })
         panel.layoutParams = ViewGroup.LayoutParams(dp(224), dp(58))
-        return panel
+        return ControlPanel(panel, displayMode)
     }
 
     private fun controlButton(textValue: String, bg: Int, fg: Int): TextView {
@@ -440,6 +446,11 @@ class ConverterOverlayService : Service() {
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 }
 
+private data class ControlPanel(
+    val view: View,
+    val displayModeButton: TextView,
+)
+
 private class FloatingBallView(context: Context) : View(context) {
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(235, 62, 66) }
     private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -563,13 +574,19 @@ private class ConverterSbsView(context: Context) : View(context) {
     private var downY = 0f
     private var pinching = false
     private var onTap: (() -> Unit)? = null
+    private var onDisplayModeChanged: ((Boolean) -> Unit)? = null
     private var fpsWindowStart = android.os.SystemClock.elapsedRealtime()
     private var fpsFrames = 0
     private var currentFps = 0
     private var displayMode = DisplayMode.LANDSCAPE
+    private var lastTapTime = 0L
 
     fun setOnTap(listener: () -> Unit) {
         onTap = listener
+    }
+
+    fun setOnDisplayModeChanged(listener: (Boolean) -> Unit) {
+        onDisplayModeChanged = listener
     }
 
     fun toggleDisplayMode(): Boolean {
@@ -665,7 +682,14 @@ private class ConverterSbsView(context: Context) : View(context) {
             }
             MotionEvent.ACTION_UP -> {
                 if (!pinching && abs(event.x - downX) < 24f && abs(event.y - downY) < 24f) {
-                    onTap?.invoke()
+                    val now = System.currentTimeMillis()
+                    if (now - lastTapTime < 360L) {
+                        lastTapTime = 0L
+                        onDisplayModeChanged?.invoke(toggleDisplayMode())
+                    } else {
+                        lastTapTime = now
+                        onTap?.invoke()
+                    }
                 }
                 pinching = false
                 return true

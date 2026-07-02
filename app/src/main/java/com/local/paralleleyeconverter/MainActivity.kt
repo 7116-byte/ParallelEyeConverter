@@ -2,7 +2,11 @@ package com.local.paralleleyeconverter
 
 import android.Manifest
 import android.app.Activity
+import android.app.DownloadManager
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
@@ -10,6 +14,7 @@ import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.provider.Settings
 import android.view.Gravity
 import android.view.View
@@ -18,12 +23,13 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 
 private const val GITHUB_OWNER = "7116-byte"
 private const val GITHUB_REPO = "ParallelEyeConverter"
-private const val CURRENT_VERSION = "0.1.15"
+private const val CURRENT_VERSION = "0.1.16"
 
 private const val TEXT_APP_NAME = "\u5b9e\u65f6\u5e73\u884c\u773c\u8f6c\u5316"
 private const val TEXT_SUBTITLE = "\u5f55\u5c4f\u6355\u83b7  /  \u60ac\u6d6e\u7403  /  \u5de6\u53f3\u773c\u8f93\u51fa"
@@ -40,16 +46,32 @@ private const val TEXT_NEED_OVERLAY = "\u8bf7\u5148\u6388\u4e88\u60ac\u6d6e\u7a9
 private const val TEXT_WAITING_CAPTURE = "\u5df2\u8bf7\u6c42\u5f55\u5c4f\u6388\u6743\uff1b\u6388\u6743\u540e\u4f1a\u76f4\u63a5\u5f00\u542f\u5e73\u884c\u773c\u753b\u9762"
 private const val TEXT_STOPPED = "\u5df2\u505c\u6b62"
 private const val TEXT_CHECKING = "\u6b63\u5728\u68c0\u67e5\u66f4\u65b0..."
+private const val TEXT_DOWNLOADING = "\u6b63\u5728\u4e0b\u8f7d\u66f4\u65b0..."
 
 class MainActivity : Activity() {
     private lateinit var statusText: TextView
     private lateinit var downloadButton: Button
     private lateinit var settingsText: TextView
     private var updateUrl: String? = null
+    private var updateDownloadId: Long = -1L
+    private var updateReceiverRegistered = false
+    private val updateDownloadReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
+            if (id == updateDownloadId) {
+                handleUpdateDownloadComplete(id)
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(createContentView())
+    }
+
+    override fun onDestroy() {
+        unregisterUpdateReceiver()
+        super.onDestroy()
     }
 
     private fun createContentView(): View {
@@ -120,7 +142,7 @@ class MainActivity : Activity() {
             isEnabled = false
             alpha = 0.45f
             setOnClickListener {
-                updateUrl?.let { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it))) }
+                downloadUpdateInApp()
             }
         }
         content.addView(downloadButton, fullWidthParams(top = dp(12), height = dp(50)))
@@ -267,6 +289,7 @@ class MainActivity : Activity() {
         updateUrl = null
         downloadButton.isEnabled = false
         downloadButton.alpha = 0.45f
+        downloadButton.text = TEXT_DOWNLOAD_UPDATE
         Thread {
             val result = checkLatestRelease()
             runOnUiThread {
@@ -276,6 +299,105 @@ class MainActivity : Activity() {
                 downloadButton.alpha = if (result.downloadUrl != null) 1f else 0.45f
             }
         }.start()
+    }
+
+    private fun downloadUpdateInApp() {
+        val url = updateUrl ?: return
+        if (!url.contains(".apk", ignoreCase = true)) {
+            statusText.text = "\u6ca1\u6709\u53ef\u76f4\u63a5\u4e0b\u8f7d\u7684 APK\uff0c\u5df2\u6253\u5f00\u53d1\u5e03\u9875"
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            return
+        }
+        if (Build.VERSION.SDK_INT >= 26 && !packageManager.canRequestPackageInstalls()) {
+            statusText.text = "\u8bf7\u5148\u5141\u8bb8\u672c\u5e94\u7528\u5b89\u88c5\u672a\u77e5\u6765\u6e90 APK\uff0c\u8fd4\u56de\u540e\u518d\u70b9\u51fb\u4e0b\u8f7d\u66f4\u65b0"
+            startActivity(Intent(
+                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                Uri.parse("package:$packageName"),
+            ))
+            return
+        }
+        val fileName = downloadFileName(url)
+        val dir = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+        if (dir != null) {
+            File(dir, fileName).delete()
+        }
+        val request = DownloadManager.Request(Uri.parse(url))
+            .setTitle(fileName)
+            .setDescription("\u5b9e\u65f6\u5e73\u884c\u773c\u8f6c\u5316 APK")
+            .setMimeType("application/vnd.android.package-archive")
+            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            .setAllowedOverMetered(true)
+            .setAllowedOverRoaming(true)
+            .setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, fileName)
+        registerUpdateReceiver()
+        updateDownloadId = getSystemService(DownloadManager::class.java).enqueue(request)
+        statusText.text = TEXT_DOWNLOADING
+        downloadButton.text = TEXT_DOWNLOADING
+        downloadButton.isEnabled = false
+        downloadButton.alpha = 0.45f
+    }
+
+    private fun handleUpdateDownloadComplete(downloadId: Long) {
+        val manager = getSystemService(DownloadManager::class.java)
+        manager.query(DownloadManager.Query().setFilterById(downloadId)).use { cursor ->
+            if (!cursor.moveToFirst()) {
+                markUpdateDownloadFailed("\u672a\u627e\u5230\u4e0b\u8f7d\u4efb\u52a1")
+                return
+            }
+            val status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+            if (status != DownloadManager.STATUS_SUCCESSFUL) {
+                markUpdateDownloadFailed("\u4e0b\u8f7d\u5931\u8d25")
+                return
+            }
+        }
+        val uri = manager.getUriForDownloadedFile(downloadId)
+        if (uri == null) {
+            markUpdateDownloadFailed("\u6ca1\u6709\u83b7\u53d6\u5230 APK \u6587\u4ef6")
+            return
+        }
+        statusText.text = "\u4e0b\u8f7d\u5b8c\u6210\uff0c\u6b63\u5728\u6253\u5f00\u5b89\u88c5\u5668"
+        downloadButton.text = TEXT_DOWNLOAD_UPDATE
+        downloadButton.isEnabled = true
+        downloadButton.alpha = 1f
+        runCatching {
+            startActivity(Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            })
+        }.onFailure { error ->
+            markUpdateDownloadFailed("\u6253\u5f00\u5b89\u88c5\u5668\u5931\u8d25\uff1a${error.message}")
+        }
+    }
+
+    private fun markUpdateDownloadFailed(message: String) {
+        statusText.text = message
+        downloadButton.text = TEXT_DOWNLOAD_UPDATE
+        downloadButton.isEnabled = updateUrl != null
+        downloadButton.alpha = if (updateUrl != null) 1f else 0.45f
+    }
+
+    private fun registerUpdateReceiver() {
+        if (updateReceiverRegistered) return
+        val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(updateDownloadReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            registerReceiver(updateDownloadReceiver, filter)
+        }
+        updateReceiverRegistered = true
+    }
+
+    private fun unregisterUpdateReceiver() {
+        if (!updateReceiverRegistered) return
+        runCatching { unregisterReceiver(updateDownloadReceiver) }
+        updateReceiverRegistered = false
+    }
+
+    private fun downloadFileName(url: String): String {
+        val name = Uri.parse(url).lastPathSegment.orEmpty()
+        return name.takeIf { it.endsWith(".apk", ignoreCase = true) }
+            ?: "ParallelEyeConverter-v$CURRENT_VERSION-update.apk"
     }
 
     private fun requestNotificationPermission() {
