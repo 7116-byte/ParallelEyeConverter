@@ -178,6 +178,8 @@ class ConverterOverlayService : Service() {
             touchThroughEnabled = enabled
             updatePlayerTouchMode()
             controlsPanel.touchModeButton.text = if (touchThroughEnabled) "\u63a7" else "\u900f"
+            controlsPanel.setTouchThroughCompact(touchThroughEnabled)
+            runCatching { windowManager.updateViewLayout(controls, controlsParams()) }
             showControlsTemporarily()
             return touchThroughEnabled
         }
@@ -298,7 +300,12 @@ class ConverterOverlayService : Service() {
             marginEnd = dp(4)
         })
         panel.layoutParams = ViewGroup.LayoutParams(dp(278), dp(58))
-        return ControlPanel(panel, displayMode, touchThrough)
+        return ControlPanel(
+            view = panel,
+            displayModeButton = displayMode,
+            touchModeButton = touchThrough,
+            compactHiddenViews = listOf(minus, max, displayMode, close),
+        )
     }
 
     private fun controlButton(textValue: String, bg: Int, fg: Int): TextView {
@@ -455,14 +462,18 @@ class ConverterOverlayService : Service() {
 
     private fun controlsParams(): LayoutParams {
         return overlayParams(
-            LayoutParams.WRAP_CONTENT,
+            if (touchThroughEnabled) dp(58) else LayoutParams.WRAP_CONTENT,
             dp(58),
             opaque = false,
             focusable = false,
             touchable = true,
         ).apply {
-            gravity = Gravity.CENTER
-            x = 0
+            gravity = if (touchThroughEnabled) {
+                Gravity.END or Gravity.CENTER_VERTICAL
+            } else {
+                Gravity.CENTER
+            }
+            x = if (touchThroughEnabled) -dp(12) else 0
             y = 0
         }
     }
@@ -490,10 +501,16 @@ class ConverterOverlayService : Service() {
 }
 
 private data class ControlPanel(
-    val view: View,
+    val view: LinearLayout,
     val displayModeButton: TextView,
     val touchModeButton: TextView,
-)
+    val compactHiddenViews: List<View>,
+) {
+    fun setTouchThroughCompact(enabled: Boolean) {
+        compactHiddenViews.forEach { it.visibility = if (enabled) View.GONE else View.VISIBLE }
+        view.gravity = Gravity.CENTER
+    }
+}
 
 private class FloatingBallView(context: Context) : View(context) {
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(235, 62, 66) }
