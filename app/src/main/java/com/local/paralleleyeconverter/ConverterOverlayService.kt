@@ -174,12 +174,16 @@ class ConverterOverlayService : Service() {
                 mainHandler.postDelayed(hideControlsRunnable, 2000L)
             }
         }
+        fun setTouchThrough(enabled: Boolean): Boolean {
+            touchThroughEnabled = enabled
+            updatePlayerTouchMode()
+            controlsPanel.touchModeButton.text = if (touchThroughEnabled) "\u63a7" else "\u900f"
+            showControlsTemporarily()
+            return touchThroughEnabled
+        }
         val sbsView = ConverterSbsView(this).apply {
             setOnTap { showControlsTemporarily() }
-            setOnDisplayModeChanged { heightFill ->
-                controlsPanel.displayModeButton.text = if (heightFill) "\u6a2a" else "\u7ad6"
-                showControlsTemporarily()
-            }
+            setOnDoubleTap { setTouchThrough(true) }
         }
         controlsPanel = createControls(
             onMinimize = { showFloatingBall() },
@@ -190,10 +194,7 @@ class ConverterOverlayService : Service() {
                 sbsView.toggleDisplayMode()
             },
             onTouchThroughToggle = {
-                touchThroughEnabled = !touchThroughEnabled
-                updatePlayerTouchMode()
-                showControlsTemporarily()
-                touchThroughEnabled
+                setTouchThrough(!touchThroughEnabled)
             },
             onClose = {
                 stopService(Intent(this@ConverterOverlayService, ConverterProjectionService::class.java).setAction(ConverterProjectionService.ACTION_STOP))
@@ -448,7 +449,7 @@ class ConverterOverlayService : Service() {
             gravity = Gravity.CENTER
             x = 0
             y = 0
-            alpha = if (touchThroughEnabled) 0.8f else 1f
+            alpha = 1f
         }
     }
 
@@ -617,7 +618,7 @@ private class ConverterSbsView(context: Context) : View(context) {
     private var downY = 0f
     private var pinching = false
     private var onTap: (() -> Unit)? = null
-    private var onDisplayModeChanged: ((Boolean) -> Unit)? = null
+    private var onDoubleTap: (() -> Unit)? = null
     private var fpsWindowStart = android.os.SystemClock.elapsedRealtime()
     private var fpsFrames = 0
     private var currentFps = 0
@@ -628,8 +629,8 @@ private class ConverterSbsView(context: Context) : View(context) {
         onTap = listener
     }
 
-    fun setOnDisplayModeChanged(listener: (Boolean) -> Unit) {
-        onDisplayModeChanged = listener
+    fun setOnDoubleTap(listener: () -> Unit) {
+        onDoubleTap = listener
     }
 
     fun toggleDisplayMode(): Boolean {
@@ -728,7 +729,7 @@ private class ConverterSbsView(context: Context) : View(context) {
                     val now = System.currentTimeMillis()
                     if (now - lastTapTime < 360L) {
                         lastTapTime = 0L
-                        onDisplayModeChanged?.invoke(toggleDisplayMode())
+                        onDoubleTap?.invoke()
                     } else {
                         lastTapTime = now
                         onTap?.invoke()
