@@ -34,7 +34,9 @@ import kotlin.math.sqrt
 class ConverterOverlayService : Service() {
     private lateinit var windowManager: WindowManager
     private var currentView: View? = null
+    private var playerControlsView: View? = null
     private var showingPlayer = false
+    private var touchThroughEnabled = false
     private var floatingBallX = -1
     private var floatingBallY = -1
     private var floatingBallHalfHidden = false
@@ -94,19 +96,12 @@ class ConverterOverlayService : Service() {
     private fun refreshCurrentOverlayLayout() {
         if (showingPlayer) {
             currentView?.let { view ->
-                val params = overlayParams(
-                    LayoutParams.MATCH_PARENT,
-                    LayoutParams.MATCH_PARENT,
-                    opaque = true,
-                    focusable = true,
-                ).apply {
-                    gravity = Gravity.CENTER
-                    x = 0
-                    y = 0
-                }
-                runCatching { windowManager.updateViewLayout(view, params) }
+                runCatching { windowManager.updateViewLayout(view, playerParams()) }
                 view.requestLayout()
                 view.invalidate()
+            }
+            playerControlsView?.let { view ->
+                runCatching { windowManager.updateViewLayout(view, controlsParams()) }
             }
         } else {
             val size = dp(62)
@@ -152,6 +147,7 @@ class ConverterOverlayService : Service() {
         cancelFloatingBallIdle()
         removeCurrentView()
         showingPlayer = true
+        touchThroughEnabled = false
         val root = object : FrameLayout(this) {
             override fun dispatchKeyEvent(event: KeyEvent): Boolean {
                 if (event.keyCode == KeyEvent.KEYCODE_BACK) {
@@ -174,7 +170,9 @@ class ConverterOverlayService : Service() {
         fun showControlsTemporarily() {
             controls.visibility = View.VISIBLE
             mainHandler.removeCallbacks(hideControlsRunnable)
-            mainHandler.postDelayed(hideControlsRunnable, 2000L)
+            if (!touchThroughEnabled) {
+                mainHandler.postDelayed(hideControlsRunnable, 2000L)
+            }
         }
         val sbsView = ConverterSbsView(this).apply {
             setOnTap { showControlsTemporarily() }
@@ -191,6 +189,12 @@ class ConverterOverlayService : Service() {
             onDisplayModeToggle = {
                 sbsView.toggleDisplayMode()
             },
+            onTouchThroughToggle = {
+                touchThroughEnabled = !touchThroughEnabled
+                updatePlayerTouchMode()
+                showControlsTemporarily()
+                touchThroughEnabled
+            },
             onClose = {
                 stopService(Intent(this@ConverterOverlayService, ConverterProjectionService::class.java).setAction(ConverterProjectionService.ACTION_STOP))
                 stopSelf()
@@ -202,25 +206,17 @@ class ConverterOverlayService : Service() {
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT,
         ))
-        root.addView(controls, FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            dp(58),
-            Gravity.CENTER,
-        ))
-        val params = overlayParams(
-            LayoutParams.MATCH_PARENT,
-            LayoutParams.MATCH_PARENT,
-            opaque = true,
-            focusable = true,
-        ).apply {
-            gravity = Gravity.CENTER
-            x = 0
-            y = 0
-        }
         currentView = root
-        windowManager.addView(root, params)
+        playerControlsView = controls
+        windowManager.addView(root, playerParams())
+        windowManager.addView(controls, controlsParams())
         root.requestFocus()
         showControlsTemporarily()
+    }
+
+    private fun updatePlayerTouchMode() {
+        val view = currentView ?: return
+        runCatching { windowManager.updateViewLayout(view, playerParams()) }
     }
 
     private fun openTargetThenShowPlayer() {
@@ -249,6 +245,7 @@ class ConverterOverlayService : Service() {
         onMinimize: () -> Unit,
         onMaximize: () -> Unit,
         onDisplayModeToggle: () -> Boolean,
+        onTouchThroughToggle: () -> Boolean,
         onClose: () -> Unit,
     ): ControlPanel {
         val panel = LinearLayout(this).apply {
@@ -269,6 +266,12 @@ class ConverterOverlayService : Service() {
                 text = if (onDisplayModeToggle()) "\u6a2a" else "\u7ad6"
             }
         }
+        val touchThrough = controlButton("\u900f", Color.argb(128, 255, 255, 255), Color.rgb(28, 35, 44)).apply {
+            textSize = 22f
+            setOnClickListener {
+                text = if (onTouchThroughToggle()) "\u63a7" else "\u900f"
+            }
+        }
         val close = controlButton("\u00d7", Color.argb(128, 0, 210, 130), Color.WHITE).apply {
             setOnClickListener { onClose() }
         }
@@ -285,12 +288,16 @@ class ConverterOverlayService : Service() {
             marginStart = dp(4)
             marginEnd = dp(4)
         })
+        panel.addView(touchThrough, LinearLayout.LayoutParams(dp(46), dp(46)).apply {
+            marginStart = dp(4)
+            marginEnd = dp(4)
+        })
         panel.addView(close, LinearLayout.LayoutParams(dp(46), dp(46)).apply {
             marginStart = dp(4)
             marginEnd = dp(4)
         })
-        panel.layoutParams = ViewGroup.LayoutParams(dp(224), dp(58))
-        return ControlPanel(panel, displayMode)
+        panel.layoutParams = ViewGroup.LayoutParams(dp(278), dp(58))
+        return ControlPanel(panel, displayMode, touchThrough)
     }
 
     private fun controlButton(textValue: String, bg: Int, fg: Int): TextView {
@@ -306,7 +313,9 @@ class ConverterOverlayService : Service() {
 
     private fun removeCurrentView() {
         currentView?.let { view -> runCatching { windowManager.removeView(view) } }
+        playerControlsView?.let { view -> runCatching { windowManager.removeView(view) } }
         currentView = null
+        playerControlsView = null
     }
 
     private fun moveFloatingBall(size: Int, dx: Float, dy: Float) {
@@ -407,10 +416,14 @@ class ConverterOverlayService : Service() {
         height: Int,
         opaque: Boolean = false,
         focusable: Boolean = false,
+        touchable: Boolean = true,
     ): LayoutParams {
         var flags = LayoutParams.FLAG_NOT_TOUCH_MODAL or LayoutParams.FLAG_LAYOUT_IN_SCREEN
         if (!focusable) {
             flags = flags or LayoutParams.FLAG_NOT_FOCUSABLE
+        }
+        if (!touchable) {
+            flags = flags or LayoutParams.FLAG_NOT_TOUCHABLE
         }
         if (!opaque) {
             flags = flags or LayoutParams.FLAG_LAYOUT_NO_LIMITS
@@ -422,6 +435,35 @@ class ConverterOverlayService : Service() {
             flags,
             if (opaque) PixelFormat.OPAQUE else PixelFormat.TRANSLUCENT,
         )
+    }
+
+    private fun playerParams(): LayoutParams {
+        return overlayParams(
+            LayoutParams.MATCH_PARENT,
+            LayoutParams.MATCH_PARENT,
+            opaque = true,
+            focusable = !touchThroughEnabled,
+            touchable = !touchThroughEnabled,
+        ).apply {
+            gravity = Gravity.CENTER
+            x = 0
+            y = 0
+            alpha = if (touchThroughEnabled) 0.8f else 1f
+        }
+    }
+
+    private fun controlsParams(): LayoutParams {
+        return overlayParams(
+            LayoutParams.WRAP_CONTENT,
+            dp(58),
+            opaque = false,
+            focusable = false,
+            touchable = true,
+        ).apply {
+            gravity = Gravity.CENTER
+            x = 0
+            y = 0
+        }
     }
 
     private fun realDisplaySize(): Pair<Int, Int> {
@@ -449,6 +491,7 @@ class ConverterOverlayService : Service() {
 private data class ControlPanel(
     val view: View,
     val displayModeButton: TextView,
+    val touchModeButton: TextView,
 )
 
 private class FloatingBallView(context: Context) : View(context) {
