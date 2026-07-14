@@ -45,6 +45,14 @@ class ConverterOverlayService : Service() {
     private var floatingBallIdleRunnable: Runnable? = null
     private var displayListener: DisplayManager.DisplayListener? = null
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val targetLearningRunnable = object : Runnable {
+        override fun run() {
+            ForegroundAppHelper.captureFirstTargetPackage(this@ConverterOverlayService)
+            if (ForegroundAppHelper.isTargetLearning(this@ConverterOverlayService)) {
+                mainHandler.postDelayed(this, TARGET_LEARNING_INTERVAL_MS)
+            }
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -53,13 +61,35 @@ class ConverterOverlayService : Service() {
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         registerDisplayListener()
         showPlayer()
+        scheduleTargetLearning()
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        scheduleTargetLearning()
+        return START_NOT_STICKY
     }
 
     override fun onDestroy() {
+        mainHandler.removeCallbacks(targetLearningRunnable)
         unregisterDisplayListener()
         cancelFloatingBallIdle()
         removeCurrentView()
+        ForegroundAppHelper.clearTargetPackage(this)
         super.onDestroy()
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        ForegroundAppHelper.clearTargetPackage(this)
+        stopService(Intent(this, ConverterProjectionService::class.java).setAction(ConverterProjectionService.ACTION_STOP))
+        stopSelf()
+        super.onTaskRemoved(rootIntent)
+    }
+
+    private fun scheduleTargetLearning() {
+        mainHandler.removeCallbacks(targetLearningRunnable)
+        if (ForegroundAppHelper.isTargetLearning(this)) {
+            mainHandler.post(targetLearningRunnable)
+        }
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -199,6 +229,7 @@ class ConverterOverlayService : Service() {
                 setTouchThrough(!touchThroughEnabled)
             },
             onClose = {
+                ForegroundAppHelper.clearTargetPackage(this@ConverterOverlayService)
                 stopService(Intent(this@ConverterOverlayService, ConverterProjectionService::class.java).setAction(ConverterProjectionService.ACTION_STOP))
                 stopSelf()
             },
@@ -215,7 +246,6 @@ class ConverterOverlayService : Service() {
         windowManager.addView(controls, controlsParams())
         root.requestFocus()
         showControlsTemporarily()
-        mainHandler.postDelayed({ launchTargetAppIfNeeded() }, 250L)
     }
 
     private fun updatePlayerTouchMode() {
@@ -496,7 +526,7 @@ class ConverterOverlayService : Service() {
         }
     }
 
-    private fun touchLaneWidth(): Int = dp(64)
+    private fun touchLaneWidth(): Int = dp(50)
 
     private fun realDisplaySize(): Pair<Int, Int> {
         return if (Build.VERSION.SDK_INT >= 30) {
@@ -630,6 +660,7 @@ private class FloatingBallView(context: Context) : View(context) {
 }
 
 private val DISPLAY_REFRESH_TOKEN = Any()
+private const val TARGET_LEARNING_INTERVAL_MS = 350L
 
 private class ConverterSbsView(context: Context) : View(context) {
     private val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)

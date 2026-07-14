@@ -11,6 +11,7 @@ import android.provider.Settings
 
 private const val PREFS_NAME = "converter_state"
 private const val KEY_TARGET_PACKAGE = "target_package"
+private const val KEY_TARGET_LEARNING_STARTED_AT = "target_learning_started_at"
 
 object ForegroundAppHelper {
     fun hasUsageAccess(context: Context): Boolean {
@@ -27,19 +28,35 @@ object ForegroundAppHelper {
     fun readForegroundPackage(context: Context): String? {
         if (!hasUsageAccess(context)) return null
         return readUsageEvents(context, 120000L)
-            .lastOrNull { !isSystemOrSelf(context, it.packageName) }
+            .lastOrNull()
             ?.packageName
     }
 
-    fun readLastTargetCandidatePackage(context: Context): String? {
+    fun beginTargetLearning(context: Context) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .remove(KEY_TARGET_PACKAGE)
+            .putLong(KEY_TARGET_LEARNING_STARTED_AT, System.currentTimeMillis())
+            .apply()
+    }
+
+    fun captureFirstTargetPackage(context: Context): String? {
         if (!hasUsageAccess(context)) return null
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val startedAt = prefs.getLong(KEY_TARGET_LEARNING_STARTED_AT, 0L)
+        if (startedAt <= 0L) return null
         val homePackages = readHomePackages(context)
-        return readUsageEvents(context, 180000L)
-            .lastOrNull { event ->
-                !isSystemOrSelf(context, event.packageName) &&
-                    !homePackages.contains(event.packageName)
+        val elapsed = (System.currentTimeMillis() - startedAt).coerceAtLeast(1000L)
+        val targetPackage = readUsageEvents(context, elapsed)
+            .firstOrNull { event ->
+                event.timeMs >= startedAt &&
+                    !isSystemOrSelf(context, event.packageName) &&
+                    !homePackages.contains(event.packageName) &&
+                    isLaunchableTarget(context, event.packageName)
             }
             ?.packageName
+        saveTargetPackage(context, targetPackage)
+        return targetPackage
     }
 
     private fun readUsageEvents(context: Context, windowMs: Long): List<ForegroundEvent> {
@@ -67,19 +84,30 @@ object ForegroundAppHelper {
         if (packageName.isNullOrBlank()) return
         if (isSystemOrSelf(context, packageName)) return
         if (readHomePackages(context).contains(packageName)) return
+        if (!isLaunchableTarget(context, packageName)) return
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putString(KEY_TARGET_PACKAGE, packageName)
+            .remove(KEY_TARGET_LEARNING_STARTED_AT)
             .apply()
     }
 
-    fun markInitialTargetPackage(context: Context) {
-        saveTargetPackage(context, readLastTargetCandidatePackage(context))
+    fun isTargetLearning(context: Context): Boolean {
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getLong(KEY_TARGET_LEARNING_STARTED_AT, 0L) > 0L
     }
 
     fun readTargetPackage(context: Context): String? {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .getString(KEY_TARGET_PACKAGE, null)
+    }
+
+    fun clearTargetPackage(context: Context) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .remove(KEY_TARGET_PACKAGE)
+            .remove(KEY_TARGET_LEARNING_STARTED_AT)
+            .apply()
     }
 
     fun usageSettingsIntent(): android.content.Intent {
@@ -89,6 +117,10 @@ object ForegroundAppHelper {
 
     private fun isSystemOrSelf(context: Context, packageName: String): Boolean {
         return packageName == context.packageName || packageName == "com.android.systemui"
+    }
+
+    private fun isLaunchableTarget(context: Context, packageName: String): Boolean {
+        return context.packageManager.getLaunchIntentForPackage(packageName) != null
     }
 
     private fun readHomePackages(context: Context): Set<String> {

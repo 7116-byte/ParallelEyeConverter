@@ -29,7 +29,7 @@ import java.net.URL
 
 private const val GITHUB_OWNER = "7116-byte"
 private const val GITHUB_REPO = "ParallelEyeConverter"
-private const val CURRENT_VERSION = "0.1.21"
+private const val CURRENT_VERSION = "0.1.22"
 
 private const val TEXT_APP_NAME = "\u5b9e\u65f6\u5e73\u884c\u773c\u8f6c\u5316"
 private const val TEXT_SUBTITLE = "\u5f55\u5c4f\u6355\u83b7  /  \u60ac\u6d6e\u7403  /  \u5de6\u53f3\u773c\u8f93\u51fa"
@@ -279,6 +279,7 @@ class MainActivity : Activity() {
     }
 
     private fun stopConversion() {
+        ForegroundAppHelper.clearTargetPackage(this)
         stopService(Intent(this, ConverterProjectionService::class.java).setAction(ConverterProjectionService.ACTION_STOP))
         stopService(Intent(this, ConverterOverlayService::class.java))
         statusText.text = TEXT_STOPPED
