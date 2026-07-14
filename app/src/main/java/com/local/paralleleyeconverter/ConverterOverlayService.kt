@@ -196,28 +196,27 @@ class ConverterOverlayService : Service() {
         }
         lateinit var hideControlsRunnable: Runnable
         lateinit var controls: View
-        lateinit var controlsPanel: ControlPanel
         fun showControlsTemporarily() {
             controls.visibility = View.VISIBLE
             mainHandler.removeCallbacks(hideControlsRunnable)
-            if (!touchThroughEnabled) {
-                mainHandler.postDelayed(hideControlsRunnable, 2000L)
-            }
+            mainHandler.postDelayed(hideControlsRunnable, 2000L)
         }
-        fun setTouchThrough(enabled: Boolean): Boolean {
+        fun setTouchThrough(enabled: Boolean) {
+            if (touchThroughEnabled == enabled) return
             touchThroughEnabled = enabled
             updatePlayerTouchMode()
-            controlsPanel.touchModeButton.text = if (touchThroughEnabled) "\u63a7" else "\u900f"
-            controlsPanel.setTouchThroughCompact(touchThroughEnabled)
-            runCatching { windowManager.updateViewLayout(controls, controlsParams()) }
-            showControlsTemporarily()
-            return touchThroughEnabled
+            if (touchThroughEnabled) {
+                mainHandler.removeCallbacks(hideControlsRunnable)
+                controls.visibility = View.GONE
+            } else {
+                showControlsTemporarily()
+            }
         }
         val sbsView = ConverterSbsView(this).apply {
             setOnTap { showControlsTemporarily() }
-            setOnDoubleTap { setTouchThrough(!touchThroughEnabled) }
+            setOnHorizontalSwipe { swipeLeft -> setTouchThrough(swipeLeft) }
         }
-        controlsPanel = createControls(
+        controls = createControls(
             onMinimize = { showFloatingBall() },
             onMaximize = {
                 openHomePage()
@@ -225,16 +224,12 @@ class ConverterOverlayService : Service() {
             onDisplayModeToggle = {
                 sbsView.toggleDisplayMode()
             },
-            onTouchThroughToggle = {
-                setTouchThrough(!touchThroughEnabled)
-            },
             onClose = {
                 ForegroundAppHelper.clearTargetPackage(this@ConverterOverlayService)
                 stopService(Intent(this@ConverterOverlayService, ConverterProjectionService::class.java).setAction(ConverterProjectionService.ACTION_STOP))
                 stopSelf()
             },
         )
-        controls = controlsPanel.view
         hideControlsRunnable = Runnable { controls.visibility = View.GONE }
         root.addView(sbsView, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -286,9 +281,8 @@ class ConverterOverlayService : Service() {
         onMinimize: () -> Unit,
         onMaximize: () -> Unit,
         onDisplayModeToggle: () -> Boolean,
-        onTouchThroughToggle: () -> Boolean,
         onClose: () -> Unit,
-    ): ControlPanel {
+    ): LinearLayout {
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
@@ -307,12 +301,6 @@ class ConverterOverlayService : Service() {
                 text = if (onDisplayModeToggle()) "\u6a2a" else "\u7ad6"
             }
         }
-        val touchThrough = controlButton("\u900f", Color.argb(128, 255, 255, 255), Color.rgb(28, 35, 44)).apply {
-            textSize = 22f
-            setOnClickListener {
-                text = if (onTouchThroughToggle()) "\u63a7" else "\u900f"
-            }
-        }
         val close = controlButton("\u00d7", Color.argb(128, 0, 210, 130), Color.WHITE).apply {
             setOnClickListener { onClose() }
         }
@@ -329,21 +317,12 @@ class ConverterOverlayService : Service() {
             marginStart = dp(4)
             marginEnd = dp(4)
         })
-        panel.addView(touchThrough, LinearLayout.LayoutParams(dp(46), dp(46)).apply {
-            marginStart = dp(4)
-            marginEnd = dp(4)
-        })
         panel.addView(close, LinearLayout.LayoutParams(dp(46), dp(46)).apply {
             marginStart = dp(4)
             marginEnd = dp(4)
         })
-        panel.layoutParams = ViewGroup.LayoutParams(dp(278), dp(58))
-        return ControlPanel(
-            view = panel,
-            displayModeButton = displayMode,
-            touchModeButton = touchThrough,
-            compactHiddenViews = listOf(minus, max, displayMode, close),
-        )
+        panel.layoutParams = ViewGroup.LayoutParams(dp(236), dp(58))
+        return panel
     }
 
     private fun controlButton(textValue: String, bg: Int, fg: Int): TextView {
@@ -510,23 +489,19 @@ class ConverterOverlayService : Service() {
 
     private fun controlsParams(): LayoutParams {
         return overlayParams(
-            if (touchThroughEnabled) dp(58) else LayoutParams.WRAP_CONTENT,
+            LayoutParams.WRAP_CONTENT,
             dp(58),
             opaque = false,
             focusable = false,
             touchable = true,
         ).apply {
-            gravity = if (touchThroughEnabled) {
-                Gravity.END or Gravity.CENTER_VERTICAL
-            } else {
-                Gravity.CENTER
-            }
-            x = if (touchThroughEnabled) -dp(12) else 0
+            gravity = Gravity.CENTER
+            x = 0
             y = 0
         }
     }
 
-    private fun touchLaneWidth(): Int = dp(50)
+    private fun touchLaneWidth(): Int = dp(64)
 
     private fun realDisplaySize(): Pair<Int, Int> {
         return if (Build.VERSION.SDK_INT >= 30) {
@@ -548,18 +523,6 @@ class ConverterOverlayService : Service() {
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
-}
-
-private data class ControlPanel(
-    val view: LinearLayout,
-    val displayModeButton: TextView,
-    val touchModeButton: TextView,
-    val compactHiddenViews: List<View>,
-) {
-    fun setTouchThroughCompact(enabled: Boolean) {
-        compactHiddenViews.forEach { it.visibility = if (enabled) View.GONE else View.VISIBLE }
-        view.gravity = Gravity.CENTER
-    }
 }
 
 private class FloatingBallView(context: Context) : View(context) {
@@ -686,19 +649,18 @@ private class ConverterSbsView(context: Context) : View(context) {
     private var downY = 0f
     private var pinching = false
     private var onTap: (() -> Unit)? = null
-    private var onDoubleTap: (() -> Unit)? = null
+    private var onHorizontalSwipe: ((Boolean) -> Unit)? = null
     private var fpsWindowStart = android.os.SystemClock.elapsedRealtime()
     private var fpsFrames = 0
     private var currentFps = 0
     private var displayMode = DisplayMode.LANDSCAPE
-    private var lastTapTime = 0L
 
     fun setOnTap(listener: () -> Unit) {
         onTap = listener
     }
 
-    fun setOnDoubleTap(listener: () -> Unit) {
-        onDoubleTap = listener
+    fun setOnHorizontalSwipe(listener: (swipeLeft: Boolean) -> Unit) {
+        onHorizontalSwipe = listener
     }
 
     fun toggleDisplayMode(): Boolean {
@@ -793,15 +755,13 @@ private class ConverterSbsView(context: Context) : View(context) {
                 return true
             }
             MotionEvent.ACTION_UP -> {
-                if (!pinching && abs(event.x - downX) < 24f && abs(event.y - downY) < 24f) {
-                    val now = System.currentTimeMillis()
-                    if (now - lastTapTime < 360L) {
-                        lastTapTime = 0L
-                        onDoubleTap?.invoke()
-                    } else {
-                        lastTapTime = now
-                        onTap?.invoke()
-                    }
+                val deltaX = event.x - downX
+                val deltaY = event.y - downY
+                val swipeThreshold = 48f * resources.displayMetrics.density
+                if (!pinching && abs(deltaX) >= swipeThreshold && abs(deltaX) > abs(deltaY)) {
+                    onHorizontalSwipe?.invoke(deltaX < 0f)
+                } else if (!pinching && abs(deltaX) < 24f && abs(deltaY) < 24f) {
+                    onTap?.invoke()
                 }
                 pinching = false
                 return true
