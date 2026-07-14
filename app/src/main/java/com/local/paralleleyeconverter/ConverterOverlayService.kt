@@ -185,7 +185,7 @@ class ConverterOverlayService : Service() {
         }
         val sbsView = ConverterSbsView(this).apply {
             setOnTap { showControlsTemporarily() }
-            setOnDoubleTap { setTouchThrough(true) }
+            setOnDoubleTap { setTouchThrough(!touchThroughEnabled) }
         }
         controlsPanel = createControls(
             onMinimize = { showFloatingBall() },
@@ -446,14 +446,24 @@ class ConverterOverlayService : Service() {
     }
 
     private fun playerParams(): LayoutParams {
+        val playerWidth = if (touchThroughEnabled) {
+            val (screenWidth, _) = realDisplaySize()
+            (screenWidth - touchLaneWidth()).coerceAtLeast(dp(240))
+        } else {
+            LayoutParams.MATCH_PARENT
+        }
         return overlayParams(
-            LayoutParams.MATCH_PARENT,
+            playerWidth,
             LayoutParams.MATCH_PARENT,
             opaque = true,
-            focusable = !touchThroughEnabled,
-            touchable = !touchThroughEnabled,
+            focusable = true,
+            touchable = true,
         ).apply {
-            gravity = Gravity.CENTER
+            gravity = if (touchThroughEnabled) {
+                Gravity.START or Gravity.CENTER_VERTICAL
+            } else {
+                Gravity.CENTER
+            }
             x = 0
             y = 0
             alpha = 1f
@@ -477,6 +487,8 @@ class ConverterOverlayService : Service() {
             y = 0
         }
     }
+
+    private fun touchLaneWidth(): Int = dp(86)
 
     private fun realDisplaySize(): Pair<Int, Int> {
         return if (Build.VERSION.SDK_INT >= 30) {
