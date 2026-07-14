@@ -215,6 +215,7 @@ class ConverterOverlayService : Service() {
         windowManager.addView(controls, controlsParams())
         root.requestFocus()
         showControlsTemporarily()
+        mainHandler.postDelayed({ launchTargetAppIfNeeded() }, 250L)
     }
 
     private fun updatePlayerTouchMode() {
@@ -223,6 +224,14 @@ class ConverterOverlayService : Service() {
     }
 
     private fun openTargetThenShowPlayer() {
+        if (launchTargetAppIfNeeded()) {
+            mainHandler.postDelayed({ showPlayer() }, 700L)
+            return
+        }
+        showPlayer()
+    }
+
+    private fun launchTargetAppIfNeeded(): Boolean {
         val targetPackage = ForegroundAppHelper.readTargetPackage(this)
         val currentPackage = ForegroundAppHelper.readForegroundPackage(this)
         if (!targetPackage.isNullOrBlank() && currentPackage != targetPackage) {
@@ -230,11 +239,10 @@ class ConverterOverlayService : Service() {
             if (launchIntent != null) {
                 launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
                 startActivity(launchIntent)
-                mainHandler.postDelayed({ showPlayer() }, 700L)
-                return
+                return true
             }
         }
-        showPlayer()
+        return false
     }
 
     private fun openHomePage() {
@@ -488,7 +496,7 @@ class ConverterOverlayService : Service() {
         }
     }
 
-    private fun touchLaneWidth(): Int = dp(86)
+    private fun touchLaneWidth(): Int = dp(64)
 
     private fun realDisplaySize(): Pair<Int, Int> {
         return if (Build.VERSION.SDK_INT >= 30) {
