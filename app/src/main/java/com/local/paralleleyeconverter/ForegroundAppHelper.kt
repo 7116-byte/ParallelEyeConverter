@@ -27,8 +27,8 @@ object ForegroundAppHelper {
 
     fun readForegroundPackage(context: Context): String? {
         if (!hasUsageAccess(context)) return null
-        return readUsageEvents(context, 120000L)
-            .lastOrNull()
+        return readUsageEvents(context, 6 * 60 * 60 * 1000L)
+            .lastOrNull { !isTransientSystemPackage(it.packageName) }
             ?.packageName
     }
 
@@ -51,6 +51,7 @@ object ForegroundAppHelper {
             .firstOrNull { event ->
                 event.timeMs >= startedAt &&
                     !isSystemOrSelf(context, event.packageName) &&
+                    !isTransientSystemPackage(event.packageName) &&
                     !homePackages.contains(event.packageName) &&
                     isLaunchableTarget(context, event.packageName)
             }
@@ -83,6 +84,7 @@ object ForegroundAppHelper {
     fun saveTargetPackage(context: Context, packageName: String?) {
         if (packageName.isNullOrBlank()) return
         if (isSystemOrSelf(context, packageName)) return
+        if (isTransientSystemPackage(packageName)) return
         if (readHomePackages(context).contains(packageName)) return
         if (!isLaunchableTarget(context, packageName)) return
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -116,7 +118,13 @@ object ForegroundAppHelper {
     }
 
     private fun isSystemOrSelf(context: Context, packageName: String): Boolean {
-        return packageName == context.packageName || packageName == "com.android.systemui"
+        return packageName == context.packageName
+    }
+
+    private fun isTransientSystemPackage(packageName: String): Boolean {
+        return packageName == "com.android.systemui" ||
+            packageName == "com.android.permissioncontroller" ||
+            packageName == "com.google.android.permissioncontroller"
     }
 
     private fun isLaunchableTarget(context: Context, packageName: String): Boolean {

@@ -69,8 +69,9 @@ class ConverterProjectionService : Service() {
         val resultCode = intent?.getIntExtra(EXTRA_RESULT_CODE, 0) ?: return START_NOT_STICKY
         val resultData = getResultData(intent) ?: return START_NOT_STICKY
         if (projection != null) {
-            return START_STICKY
+            closeCaptureSession()
         }
+        FrameBus.clear()
         val thread = HandlerThread("converter-capture").also { it.start() }
         handlerThread = thread
         handler = Handler(thread.looper)
@@ -85,20 +86,29 @@ class ConverterProjectionService : Service() {
     }
 
     override fun onDestroy() {
+        closeCaptureSession()
+        super.onDestroy()
+    }
+
+    private fun closeCaptureSession() {
         handler?.removeCallbacksAndMessages(null)
         displayListener?.let { listener ->
             runCatching { getSystemService(DisplayManager::class.java).unregisterDisplayListener(listener) }
         }
+        displayListener = null
         projectionCallback?.let { callback ->
             runCatching { projection?.unregisterCallback(callback) }
         }
+        projectionCallback = null
         releaseCaptureSurface()
-        projection?.stop()
+        val oldProjection = projection
         projection = null
+        oldProjection?.stop()
         handlerThread?.quitSafely()
+        handlerThread = null
+        handler = null
         DepthProcessor.reset()
         FrameBus.clear()
-        super.onDestroy()
     }
 
     private fun getResultData(intent: Intent): Intent? {
@@ -111,15 +121,17 @@ class ConverterProjectionService : Service() {
     }
 
     private fun registerProjectionCallback() {
+        val activeProjection = projection ?: return
         val callback = object : MediaProjection.Callback() {
             override fun onStop() {
+                if (projection !== activeProjection) return
                 releaseCaptureSurface()
                 FrameBus.clear()
                 stopSelf()
             }
         }
         projectionCallback = callback
-        projection?.registerCallback(callback, handler)
+        activeProjection.registerCallback(callback, handler)
     }
 
     private fun registerDisplayListener() {

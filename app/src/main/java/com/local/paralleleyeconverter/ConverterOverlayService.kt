@@ -196,6 +196,7 @@ class ConverterOverlayService : Service() {
         }
         lateinit var hideControlsRunnable: Runnable
         lateinit var controls: View
+        lateinit var sbsView: ConverterSbsView
         fun showControlsTemporarily() {
             controls.visibility = View.VISIBLE
             mainHandler.removeCallbacks(hideControlsRunnable)
@@ -204,6 +205,7 @@ class ConverterOverlayService : Service() {
         fun setTouchThrough(enabled: Boolean) {
             if (touchThroughEnabled == enabled) return
             touchThroughEnabled = enabled
+            sbsView.setTouchLaneBorderVisible(enabled)
             updatePlayerTouchMode()
             if (touchThroughEnabled) {
                 mainHandler.removeCallbacks(hideControlsRunnable)
@@ -212,7 +214,7 @@ class ConverterOverlayService : Service() {
                 showControlsTemporarily()
             }
         }
-        val sbsView = ConverterSbsView(this).apply {
+        sbsView = ConverterSbsView(this).apply {
             setOnTap { showControlsTemporarily() }
             setOnHorizontalSwipe { swipeLeft -> setTouchThrough(swipeLeft) }
         }
@@ -632,6 +634,7 @@ private class ConverterSbsView(context: Context) : View(context) {
         color = Color.BLACK
         strokeWidth = 3f * context.resources.displayMetrics.density
     }
+    private val touchLaneBorderPaint = Paint().apply { color = Color.BLACK }
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         textSize = 30f * context.resources.displayMetrics.scaledDensity
@@ -654,6 +657,7 @@ private class ConverterSbsView(context: Context) : View(context) {
     private var fpsFrames = 0
     private var currentFps = 0
     private var displayMode = DisplayMode.LANDSCAPE
+    private var touchLaneBorderVisible = false
 
     fun setOnTap(listener: () -> Unit) {
         onTap = listener
@@ -661,6 +665,11 @@ private class ConverterSbsView(context: Context) : View(context) {
 
     fun setOnHorizontalSwipe(listener: (swipeLeft: Boolean) -> Unit) {
         onHorizontalSwipe = listener
+    }
+
+    fun setTouchLaneBorderVisible(visible: Boolean) {
+        touchLaneBorderVisible = visible
+        invalidate()
     }
 
     fun toggleDisplayMode(): Boolean {
@@ -705,6 +714,9 @@ private class ConverterSbsView(context: Context) : View(context) {
         }
         val centerX = width / 2f
         canvas.drawLine(centerX, 0f, centerX, height.toFloat(), dividerPaint)
+        if (touchLaneBorderVisible) {
+            canvas.drawRect((width - 3).toFloat(), 0f, width.toFloat(), height.toFloat(), touchLaneBorderPaint)
+        }
         updateFps()
         postInvalidateOnAnimation()
     }
