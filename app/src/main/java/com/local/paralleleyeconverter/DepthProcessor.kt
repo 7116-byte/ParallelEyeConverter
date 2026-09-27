@@ -9,6 +9,8 @@ import org.tensorflow.lite.DataType
 import org.tensorflow.lite.Interpreter
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.nio.channels.FileChannel
+import java.io.FileInputStream
 import kotlin.math.max
 import kotlin.math.min
 
@@ -18,6 +20,7 @@ object DepthProcessor {
 
     private val lock = Any()
     private var interpreter: Interpreter? = null
+    private var activeModelBuffer: ByteBuffer? = null
     private var activeAsset: String? = null
     private var activeResolutionMode = -1
     private var inputWidth = 0
@@ -28,14 +31,20 @@ object DepthProcessor {
     private var outputType = DataType.FLOAT32
     private var outputElements = 0
     private var frameCounter = 0L
+    private var inputBuffer: ByteBuffer? = null
+    private var outputBuffer: ByteBuffer? = null
+    private var scaledBitmap: Bitmap? = null
+    private var inputPixels = IntArray(0)
 
     fun reset() {
         synchronized(lock) {
             interpreter?.close()
             interpreter = null
+            activeModelBuffer = null
             activeAsset = null
             activeResolutionMode = -1
             frameCounter = 0L
+            clearWorkingBuffers()
             DepthBus.clear()
         }
     }
@@ -57,8 +66,10 @@ object DepthProcessor {
             val started = SystemClock.elapsedRealtime()
             runCatching {
                 val input = buildInput(bitmap)
-                val output = ByteBuffer.allocateDirect(outputElements * bytesPerElement(outputType))
-                    .order(ByteOrder.nativeOrder())
+                val outputBytes = outputElements * bytesPerElement(outputType)
+                val output = outputBuffer?.takeIf { it.capacity() == outputBytes }
+                    ?: ByteBuffer.allocateDirect(outputBytes).order(ByteOrder.nativeOrder()).also { outputBuffer = it }
+                output.clear()
                 localInterpreter.run(input, output)
                 output.rewind()
                 val values = readOutput(output)
@@ -88,42 +99,48 @@ object DepthProcessor {
         }
         interpreter?.close()
         interpreter = null
+        activeModelBuffer = null
+        clearWorkingBuffers()
         return createInterpreter(context, wantedAsset, wantedResolution)
             ?: if (wantedAsset != MIDAS_ASSET) createInterpreter(context, MIDAS_ASSET, AppSettings.RES_NATIVE) else null
     }
 
     private fun createInterpreter(context: Context, assetName: String, resolutionMode: Int): Interpreter? {
+        var created: Interpreter? = null
         return runCatching {
-            val modelBytes = context.assets.open(assetName).use { it.readBytes() }
-            val modelBuffer = ByteBuffer.allocateDirect(modelBytes.size).order(ByteOrder.nativeOrder())
-            modelBuffer.put(modelBytes)
-            modelBuffer.rewind()
+            val modelBuffer = context.assets.openFd(assetName).use { descriptor ->
+                FileInputStream(descriptor.fileDescriptor).use { input ->
+                    input.channel.map(FileChannel.MapMode.READ_ONLY, descriptor.startOffset, descriptor.length)
+                }
+            }
             val options = Interpreter.Options().apply {
                 setNumThreads(4)
-                setUseNNAPI(true)
             }
-            val created = Interpreter(modelBuffer, options)
-            val nativeShape = created.getInputTensor(0).shape()
+            val interpreter = Interpreter(modelBuffer, options)
+            created = interpreter
+            val nativeShape = interpreter.getInputTensor(0).shape()
             val target = targetInputShape(nativeShape, resolutionMode)
             if (target != null && !target.contentEquals(nativeShape)) {
                 runCatching {
-                    created.resizeInput(0, target)
-                    created.allocateTensors()
+                    interpreter.resizeInput(0, target)
+                    interpreter.allocateTensors()
                 }.onFailure {
-                    created.resizeInput(0, nativeShape)
-                    created.allocateTensors()
+                    interpreter.resizeInput(0, nativeShape)
+                    interpreter.allocateTensors()
                     DepthBus.markUnavailable("depth resolution: fallback native")
                 }
             } else {
-                created.allocateTensors()
+                interpreter.allocateTensors()
             }
-            configureTensorInfo(created)
-            interpreter = created
+            configureTensorInfo(interpreter)
+            this.interpreter = interpreter
+            activeModelBuffer = modelBuffer
             activeAsset = assetName
             activeResolutionMode = resolutionMode
             DepthBus.markUnavailable("3D ready: ${if (assetName == DEPTH_ANYTHING_ASSET) "Depth Anything V2" else "MiDaS"}")
-            created
+            interpreter
         }.getOrElse { error ->
+            created?.close()
             DepthBus.markUnavailable("3D init failed: ${error.javaClass.simpleName}")
             null
         }
@@ -172,18 +189,21 @@ object DepthProcessor {
 
     private fun buildInput(bitmap: Bitmap): ByteBuffer {
         val bytes = inputWidth * inputHeight * 3 * bytesPerElement(inputType)
-        val input = ByteBuffer.allocateDirect(bytes).order(ByteOrder.nativeOrder())
-        val scaled = Bitmap.createBitmap(inputWidth, inputHeight, Bitmap.Config.ARGB_8888)
+        val input = inputBuffer?.takeIf { it.capacity() == bytes }
+            ?: ByteBuffer.allocateDirect(bytes).order(ByteOrder.nativeOrder()).also { inputBuffer = it }
+        input.clear()
+        val scaled = scaledBitmap?.takeIf { it.width == inputWidth && it.height == inputHeight }
+            ?: Bitmap.createBitmap(inputWidth, inputHeight, Bitmap.Config.ARGB_8888).also { scaledBitmap = it }
         Canvas(scaled).drawBitmap(
             bitmap,
             Rect(0, 0, bitmap.width, bitmap.height),
             Rect(0, 0, inputWidth, inputHeight),
             null,
         )
-        val pixels = IntArray(inputWidth * inputHeight)
-        scaled.getPixels(pixels, 0, inputWidth, 0, 0, inputWidth, inputHeight)
-        scaled.recycle()
-        for (pixel in pixels) {
+        val pixelCount = inputWidth * inputHeight
+        if (inputPixels.size != pixelCount) inputPixels = IntArray(pixelCount)
+        scaled.getPixels(inputPixels, 0, inputWidth, 0, 0, inputWidth, inputHeight)
+        for (pixel in inputPixels) {
             val r = (pixel shr 16) and 0xff
             val g = (pixel shr 8) and 0xff
             val b = pixel and 0xff
@@ -207,6 +227,14 @@ object DepthProcessor {
         }
         input.rewind()
         return input
+    }
+
+    private fun clearWorkingBuffers() {
+        inputBuffer = null
+        outputBuffer = null
+        scaledBitmap?.recycle()
+        scaledBitmap = null
+        inputPixels = IntArray(0)
     }
 
     private fun readOutput(output: ByteBuffer): FloatArray {

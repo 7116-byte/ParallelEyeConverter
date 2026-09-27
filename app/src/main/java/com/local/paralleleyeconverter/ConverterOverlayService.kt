@@ -630,10 +630,7 @@ private const val TARGET_LEARNING_INTERVAL_MS = 350L
 private class ConverterSbsView(context: Context) : View(context) {
     private val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
     private val stereoRenderer = StereoFrameRenderer()
-    private val dividerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.BLACK
-        strokeWidth = 3f * context.resources.displayMetrics.density
-    }
+    private val dividerPaint = Paint().apply { color = Color.BLACK }
     private val touchLaneBorderPaint = Paint().apply { color = Color.BLACK }
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
@@ -712,8 +709,8 @@ private class ConverterSbsView(context: Context) : View(context) {
                 drawEye(canvas, frame, eyeWidth, eyeWidth)
             }
         }
-        val centerX = width / 2f
-        canvas.drawLine(centerX, 0f, centerX, height.toFloat(), dividerPaint)
+        val dividerLeft = (width - 3) / 2
+        canvas.drawRect(dividerLeft.toFloat(), 0f, (dividerLeft + 3).toFloat(), height.toFloat(), dividerPaint)
         if (touchLaneBorderVisible) {
             canvas.drawRect((width - 3).toFloat(), 0f, width.toFloat(), height.toFloat(), touchLaneBorderPaint)
         }
