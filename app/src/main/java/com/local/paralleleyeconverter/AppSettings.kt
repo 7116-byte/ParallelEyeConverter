@@ -8,6 +8,7 @@ private const val KEY_DEPTH_ANYTHING = "depth_anything_v2"
 private const val KEY_DEPTH_DISPARITY = "depth_disparity"
 private const val KEY_DEPTH_PERF_MODE = "depth_perf_mode"
 private const val KEY_DEPTH_RESOLUTION_MODE = "depth_resolution_mode"
+private const val KEY_CENTER_DISTANCE_RATIO = "center_distance_ratio"
 
 object AppSettings {
     const val PERF_PERFORMANCE = 0
@@ -18,6 +19,17 @@ object AppSettings {
     const val RES_360P = 1
     const val RES_480P = 2
     const val RES_720P = 3
+
+    fun centerDistanceRatio(context: Context): Float =
+        StereoLayout.clampCenterDistanceRatio(
+            prefs(context).getFloat(KEY_CENTER_DISTANCE_RATIO, StereoLayout.MIN_CENTER_DISTANCE_RATIO),
+        )
+
+    fun setCenterDistanceRatio(context: Context, ratio: Float) {
+        prefs(context).edit()
+            .putFloat(KEY_CENTER_DISTANCE_RATIO, StereoLayout.clampCenterDistanceRatio(ratio))
+            .apply()
+    }
 
     fun true3dEnabled(context: Context): Boolean =
         prefs(context).getBoolean(KEY_TRUE_3D, false)

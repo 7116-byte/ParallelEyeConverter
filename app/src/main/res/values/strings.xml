@@ -1,3 +1,6 @@
 <resources>
     <string name="app_name">&#x5b9e;&#x65f6;&#x5e73;&#x884c;&#x773c;&#x8f6c;&#x5316;</string>
+    <string name="center_distance_value">中心距：分屏宽度的 %1$.1f%%</string>
+    <string name="center_distance_hint">½（默认）→ ⅔（最宽），左右画面保持大小、对称向外移动。</string>
+    <string name="center_distance_reset">恢复默认中心距（½）</string>
 </resources>

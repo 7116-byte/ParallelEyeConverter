@@ -1,0 +1,118 @@
+{
+  "commit": "75517a23d5e9a551dfe7a568373f6838498653a1",
+  "packageName": "com.local.paralleleyeconverter",
+  "versionName": "0.1.25",
+  "versionCode": 26,
+  "minSdk": 26,
+  "targetSdk": 35,
+  "originalApkSHA256": "1F15089B73C8D5FAFEEF36763C60B1FC0CB075091FA5D43E931781941FE75443",
+  "keySHA256": "1B6DEA3917FA96CC8F361596337DC559641CB8F3ECF6B6E712AC130F9A14E0C4",
+  "certificateSHA256": "C51C08290903E65D2E99FE35CEFFD44B637F04CC5BBDD5EA9ECB8847D4EA7359",
+  "runtimeFiles": [
+    {
+      "path": "app/src/main/AndroidManifest.xml",
+      "bytes": 2528,
+      "sha256": "F570C9E9B59030112823DABA983AC3D44D38560C5EE42642027383973115E007"
+    },
+    {
+      "path": "app/src/main/assets/depth_anything_v2.tflite",
+      "bytes": 98920480,
+      "sha256": "B407F34F61750F31441E6F858A4BC48D8572F9EE5399FFD015CEE5FA1767083F"
+    },
+    {
+      "path": "app/src/main/assets/mediapipe_selfie.tflite",
+      "bytes": 231904,
+      "sha256": "3494786FFF8FDD0907FC3D067F3CF92493BCDCD5C4F85CE8FF9A079DA4FB658B"
+    },
+    {
+      "path": "app/src/main/assets/midas-v2-w8a8.tflite",
+      "bytes": 17749000,
+      "sha256": "874A4F48DED1047ED330CAA1230CE70F698B73987618AF57B22553B232814D81"
+    },
+    {
+      "path": "app/src/main/java/com/local/paralleleyeconverter/AppSettings.kt",
+      "bytes": 3162,
+      "sha256": "F455A3679A4F66707BEDD11E8D5A6D18A8CBFEFB488D49A58CE5ACC004B91D23"
+    },
+    {
+      "path": "app/src/main/java/com/local/paralleleyeconverter/CapturePermissionActivity.kt",
+      "bytes": 1272,
+      "sha256": "B2E864F8B2DDA2F210B0137364E260A4BC5C829ACE646FD6CBF81AE27760DE59"
+    },
+    {
+      "path": "app/src/main/java/com/local/paralleleyeconverter/ConverterOverlayService.kt",
+      "bytes": 30117,
+      "sha256": "C5D8F7317612AF827570189E88349E28332EA94183F888EEA1B1AF2325C37C89"
+    },
+    {
+      "path": "app/src/main/java/com/local/paralleleyeconverter/ConverterProjectionService.kt",
+      "bytes": 11137,
+      "sha256": "AF148D8244E986BEEAFFE439C1257E1953CE5BA2F2F5153C29EF40C6CC09CD5A"
+    },
+    {
+      "path": "app/src/main/java/com/local/paralleleyeconverter/ConverterTileService.kt",
+      "bytes": 1287,
+      "sha256": "603B6E3DAE7E4FFF0134023B994745F312E1C83ACF6F1F5949CBA8A201E033C7"
+    },
+    {
+      "path": "app/src/main/java/com/local/paralleleyeconverter/DepthBus.kt",
+      "bytes": 1124,
+      "sha256": "B340BABAA99DD54EF67D225A5F90B552DEA0ADEFDCAD2F5527D14A9C1C497648"
+    },
+    {
+      "path": "app/src/main/java/com/local/paralleleyeconverter/DepthProcessor.kt",
+      "bytes": 10597,
+      "sha256": "AD35811E0744653BF133EF8A879FF7810129A6112D5E4E3ED202D355755F6EBF"
+    },
+    {
+      "path": "app/src/main/java/com/local/paralleleyeconverter/ForegroundAppHelper.kt",
+      "bytes": 6340,
+      "sha256": "DF87C844BD735214F436EB5D375340AB1DDCFE3514C0BA09ED0D8519794BFD02"
+    },
+    {
+      "path": "app/src/main/java/com/local/paralleleyeconverter/FrameBus.kt",
+      "bytes": 500,
+      "sha256": "35132730A3C29F2B2EEDE2DD256B27E5A7909447A433C69DD179754576092005"
+    },
+    {
+      "path": "app/src/main/java/com/local/paralleleyeconverter/MainActivity.kt",
+      "bytes": 19990,
+      "sha256": "C87CDDBF7F87BDF5FF17F6254469C16562368FDBFCD13CB3A2E06F97FA57D76C"
+    },
+    {
+      "path": "app/src/main/java/com/local/paralleleyeconverter/StereoFrameRenderer.kt",
+      "bytes": 3374,
+      "sha256": "5F66BC4FBCFB16153E7EF5A4FB4E063F9EEA9C678A65F495F6B619368F596DC6"
+    },
+    {
+      "path": "app/src/main/res/drawable/ic_launcher_foreground.xml",
+      "bytes": 852,
+      "sha256": "563133F0F3611E8EF6885427C4F5CBE879E484AE942FED3E393D5DFF5DB9560A"
+    },
+    {
+      "path": "app/src/main/res/drawable/ic_qs_converter.xml",
+      "bytes": 1175,
+      "sha256": "22D7329998DA74883AAC8877E003CAC8A66D93C26CE60910EA6392F73A12CC9A"
+    },
+    {
+      "path": "app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml",
+      "bytes": 224,
+      "sha256": "A0FEFF2B77E0E4F28DBD0918B4D7079992703B8370241AD19E208C6632F918E9"
+    },
+    {
+      "path": "app/src/main/res/values/colors.xml",
+      "bytes": 75,
+      "sha256": "3948D0CBA754ABE49E2562E8DF69D48E557CFF04025651EC23DECC7564CBBD8E"
+    },
+    {
+      "path": "app/src/main/res/values/strings.xml",
+      "bytes": 119,
+      "sha256": "2A5A434AC56AB959736875EE674274FE671E2DAFA1E92DAFFF1C7FD0B13A7A66"
+    },
+    {
+      "path": "app/src/main/res/values/styles.xml",
+      "bytes": 285,
+      "sha256": "24EC766D4A58D2DF5ECBD4102CACC194719E5DBE561D22369FD4BE2B559328A1"
+    }
+  ]
+}

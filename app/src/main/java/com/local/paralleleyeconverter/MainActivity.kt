@@ -22,14 +22,16 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.SeekBar
 import android.widget.TextView
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import kotlin.math.roundToInt
 
 private const val GITHUB_OWNER = "7116-byte"
 private const val GITHUB_REPO = "ParallelEyeConverter"
-private const val CURRENT_VERSION = "0.1.25"
+private const val CURRENT_VERSION = "0.1.26"
 
 private const val TEXT_APP_NAME = "\u5b9e\u65f6\u5e73\u884c\u773c\u8f6c\u5316"
 private const val TEXT_SUBTITLE = "\u5f55\u5c4f\u6355\u83b7  /  \u60ac\u6d6e\u7403  /  \u5de6\u53f3\u773c\u8f93\u51fa"
@@ -154,6 +156,7 @@ class MainActivity : Activity() {
             }
         }, fullWidthParams(top = dp(12), height = dp(50)))
 
+        addCenterDistanceSettings(content)
         add3dSettings(content)
 
         content.addView(TextView(this).apply {
@@ -164,6 +167,54 @@ class MainActivity : Activity() {
         }, fullWidthParams(top = dp(22)))
 
         return root
+    }
+
+    private fun addCenterDistanceSettings(content: LinearLayout) {
+        val minimum = StereoLayout.MIN_CENTER_DISTANCE_RATIO
+        val range = StereoLayout.MAX_CENTER_DISTANCE_RATIO - minimum
+        val initialRatio = AppSettings.centerDistanceRatio(this)
+        val label = TextView(this).apply {
+            textSize = 16f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+        }
+        content.addView(label, fullWidthParams(top = dp(22)))
+        val slider = SeekBar(this).apply {
+            id = View.generateViewId()
+            max = 100
+            progress = ((initialRatio - minimum) / range * max).roundToInt()
+        }
+        label.labelFor = slider.id
+        fun updateLabel(ratio: Float) {
+            label.text = getString(R.string.center_distance_value, ratio * 100f)
+            slider.contentDescription = label.text
+        }
+        updateLabel(initialRatio)
+        slider.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
+                if (!fromUser) return
+                val ratio = minimum + range * progress / seekBar.max
+                AppSettings.setCenterDistanceRatio(this@MainActivity, ratio)
+                updateLabel(ratio)
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar) = Unit
+            override fun onStopTrackingTouch(seekBar: SeekBar) = Unit
+        })
+        content.addView(slider, fullWidthParams(top = dp(4), height = dp(48)))
+        content.addView(TextView(this).apply {
+            setText(R.string.center_distance_hint)
+            textSize = 13f
+            setTextColor(Color.rgb(199, 211, 224))
+            gravity = Gravity.CENTER
+        }, fullWidthParams(top = dp(4)))
+        content.addView(secondaryButton(getString(R.string.center_distance_reset)).apply {
+            setOnClickListener {
+                AppSettings.setCenterDistanceRatio(this@MainActivity, minimum)
+                slider.progress = 0
+                updateLabel(minimum)
+            }
+        }, fullWidthParams(top = dp(10), height = dp(48)))
     }
 
     private fun add3dSettings(content: LinearLayout) {
@@ -383,7 +434,9 @@ class MainActivity : Activity() {
         if (Build.VERSION.SDK_INT >= 33) {
             registerReceiver(updateDownloadReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
-            @Suppress("DEPRECATION")
+            // Lint 31.7.3 ignores this SDK < 33 guard when requiring export flags.
+            // Preserve legacy registration; API 33+ already uses NOT_EXPORTED above.
+            @Suppress("DEPRECATION", "UnspecifiedRegisterReceiverFlag")
             registerReceiver(updateDownloadReceiver, filter)
         }
         updateReceiverRegistered = true

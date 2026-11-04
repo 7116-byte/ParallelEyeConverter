@@ -35,7 +35,9 @@ class ConverterTileService : TileService() {
             )
             startActivityAndCollapse(pendingIntent)
         } else {
-            @Suppress("DEPRECATION")
+            // Lint 31.7.3 checks targetSdk, ignoring this SDK < 34 guard.
+            // The PendingIntent overload is unavailable on these older devices.
+            @Suppress("DEPRECATION", "StartActivityAndCollapseDeprecated")
             startActivityAndCollapse(intent)
         }
     }

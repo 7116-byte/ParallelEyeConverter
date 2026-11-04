@@ -693,6 +693,9 @@ private class ConverterSbsView(context: Context) : View(context) {
             canvas.drawText("\u7b49\u5f85\u5f55\u5c4f\u753b\u9762...", width / 2f, height / 2f, textPaint)
         } else {
             val eyeWidth = width / 2f
+            val centerDistance = AppSettings.centerDistanceRatio(context)
+            val leftCenter = StereoLayout.eyeCenterX(width.toFloat(), centerDistance, rightEye = false)
+            val rightCenter = StereoLayout.eyeCenterX(width.toFloat(), centerDistance, rightEye = true)
             if (AppSettings.true3dEnabled(context)) {
                 val depth = DepthBus.latestDepth
                 val depthVersion = DepthBus.depthVersion
@@ -700,13 +703,13 @@ private class ConverterSbsView(context: Context) : View(context) {
                 val disparity = AppSettings.disparity(context)
                 val leftEye = stereoRenderer.renderEye(frame, frameVersion, depth, depthVersion, disparity, rightEye = false)
                 val rightEye = stereoRenderer.renderEye(frame, frameVersion, depth, depthVersion, disparity, rightEye = true)
-                drawEye(canvas, leftEye, 0f, eyeWidth)
-                drawEye(canvas, rightEye, eyeWidth, eyeWidth)
+                drawEye(canvas, leftEye, 0f, eyeWidth, leftCenter)
+                drawEye(canvas, rightEye, eyeWidth, eyeWidth, rightCenter)
                 drawDebug(canvas)
             } else {
                 stereoRenderer.clear()
-                drawEye(canvas, frame, 0f, eyeWidth)
-                drawEye(canvas, frame, eyeWidth, eyeWidth)
+                drawEye(canvas, frame, 0f, eyeWidth, leftCenter)
+                drawEye(canvas, frame, eyeWidth, eyeWidth, rightCenter)
             }
         }
         val dividerLeft = (width - 3) / 2
@@ -718,14 +721,14 @@ private class ConverterSbsView(context: Context) : View(context) {
         postInvalidateOnAnimation()
     }
 
-    private fun drawEye(canvas: Canvas, frame: android.graphics.Bitmap, left: Float, eyeWidth: Float) {
+    private fun drawEye(canvas: Canvas, frame: android.graphics.Bitmap, left: Float, eyeWidth: Float, centerX: Float) {
         val scale = when (displayMode) {
             DisplayMode.LANDSCAPE -> eyeWidth / frame.width
             DisplayMode.HEIGHT_FILL -> height.toFloat() / frame.height
         } * zoom
         val drawWidth = frame.width * scale
         val drawHeight = frame.height * scale
-        val dx = left + (eyeWidth - drawWidth) / 2f
+        val dx = centerX - drawWidth / 2f
         val dy = (height - drawHeight) / 2f
         val dst = RectF(dx, dy, dx + drawWidth, dy + drawHeight)
         canvas.save()
