@@ -42,6 +42,9 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1
 # 当前工作区的一次完整离线构建和 Lint
 & .\scripts\build.ps1 -Tasks @('clean', 'testDebugUnitTest', 'assembleDebug', 'lintDebug')
 
+# 采集停帧恢复的独立 JVM 回归检查（不连接设备）
+& .\scripts\test-capture-recovery.ps1
+
 # 手动使用 SDK/Gradle 时启用本地环境
 . .\scripts\env.ps1
 ```
@@ -100,6 +103,7 @@ C51C08290903E65D2E99FE35CEFFD44B637F04CC5BBDD5EA9ECB8847D4EA7359
 CLI 路径记录在被忽略的 `.local/releases/github-cli-path.txt`。旧全局凭据助手引用 D 盘路径，
 发布操作使用本次 Git 命令的临时 helper 覆盖，不修改用户全局凭据配置。
 v0.1.26 / versionCode 27 的发布前检查见 `docs/releases/v0.1.26.md`。
+v0.1.27 / versionCode 28 的采集恢复发布检查见 `docs/releases/v0.1.27.md`。
 
 ## 源码结构与行为
 
@@ -108,6 +112,7 @@ v0.1.26 / versionCode 27 的发布前检查见 `docs/releases/v0.1.26.md`。
   ConverterOverlayService 在普通分屏和深度 3D 的统一绘制路径中应用。使用方式和检查见 `docs/center-distance.md`。
 - CapturePermissionActivity：MediaProjection 请求；成功后开始本次目标学习，启动采集及悬浮服务。
 - ConverterProjectionService：前台 mediaProjection 服务、授权回调、半分辨率 ImageReader、尺寸重建及帧看门狗。
+- CaptureRecovery：无首帧/停帧超时、重试间隔和可见性/停止状态；同尺寸强制换 Surface 的修正及验证见 `docs/capture-recovery.md`。
 - FrameBus / DepthBus：图像和深度结果及版本信息。
 - ForegroundAppHelper：基于使用情况授权，学习本次授权后的第一个可启动目标，排除自身、桌面和临时系统页；
   重入分屏时按需拉起目标，退出时清空，不是跨授权永久记忆。

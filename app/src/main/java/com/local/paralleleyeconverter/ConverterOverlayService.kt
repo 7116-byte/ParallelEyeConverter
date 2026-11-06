@@ -215,7 +215,15 @@ class ConverterOverlayService : Service() {
             }
         }
         sbsView = ConverterSbsView(this).apply {
-            setOnTap { showControlsTemporarily() }
+            setOnTap {
+                if (FrameBus.captureState == CaptureState.STOPPED) {
+                    startActivity(Intent(this@ConverterOverlayService, CapturePermissionActivity::class.java).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    })
+                } else {
+                    showControlsTemporarily()
+                }
+            }
             setOnHorizontalSwipe { swipeLeft -> setTouchThrough(swipeLeft) }
         }
         controls = createControls(
@@ -690,7 +698,13 @@ private class ConverterSbsView(context: Context) : View(context) {
         canvas.drawColor(Color.BLACK)
         val frame = FrameBus.latestFrame
         if (frame == null) {
-            canvas.drawText("\u7b49\u5f85\u5f55\u5c4f\u753b\u9762...", width / 2f, height / 2f, textPaint)
+            val message = when (FrameBus.captureState) {
+                CaptureState.STOPPED -> R.string.capture_stopped
+                CaptureState.HIDDEN -> R.string.capture_hidden
+                CaptureState.RECOVERING -> R.string.capture_recovering
+                else -> R.string.capture_waiting
+            }
+            canvas.drawText(context.getString(message), width / 2f, height / 2f, textPaint)
         } else {
             val eyeWidth = width / 2f
             val centerDistance = AppSettings.centerDistanceRatio(context)

@@ -2,7 +2,13 @@ package com.local.paralleleyeconverter
 
 import android.graphics.Bitmap
 
+enum class CaptureState { WAITING, LIVE, HIDDEN, RECOVERING, STOPPED }
+
 object FrameBus {
+    @Volatile
+    var captureState: CaptureState = CaptureState.STOPPED
+        private set
+
     @Volatile
     var latestFrame: Bitmap? = null
 
@@ -16,11 +22,17 @@ object FrameBus {
         latestFrame = bitmap
         frameVersion++
         lastFrameTimeMs = android.os.SystemClock.elapsedRealtime()
+        captureState = CaptureState.LIVE
     }
 
-    fun clear() {
+    fun markRecovering() {
+        captureState = CaptureState.RECOVERING
+    }
+
+    fun clear(state: CaptureState = CaptureState.STOPPED) {
         latestFrame = null
         frameVersion++
         lastFrameTimeMs = 0
+        captureState = state
     }
 }

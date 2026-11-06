@@ -3,4 +3,8 @@
     <string name="center_distance_value">中心距：分屏宽度的 %1$.1f%%</string>
     <string name="center_distance_hint">½（默认）→ ⅔（最宽），左右画面保持大小、对称向外移动。</string>
     <string name="center_distance_reset">恢复默认中心距（½）</string>
+    <string name="capture_waiting">等待录屏画面…</string>
+    <string name="capture_recovering">正在恢复画面…</string>
+    <string name="capture_hidden">请返回已授权录屏的应用</string>
+    <string name="capture_stopped">录屏已停止，点按重新授权</string>
 </resources>

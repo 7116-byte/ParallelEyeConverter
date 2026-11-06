@@ -26,7 +26,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1
 Build output:
 
 ```text
-app/build/outputs/apk/debug/ParallelEyeConverter-v0.1.26-debug.apk
+app/build/outputs/apk/debug/ParallelEyeConverter-v0.1.27-debug.apk
 ```
 
 ## Release
@@ -37,7 +37,7 @@ Repository:
 https://github.com/7116-byte/ParallelEyeConverter
 ```
 
-Current version: `v0.1.26` (versionCode `27`)
+Current version: `v0.1.27` (versionCode `28`)
 
 包名：`com.local.paralleleyeconverter`。debug 构建显式使用 `.local/private/` 的原签名，
 不修改用户全局密钥。从 GitHub 克隆源码后仍需另行恢复这些本机资产，尤其是原签名。
@@ -45,7 +45,7 @@ Current version: `v0.1.26` (versionCode `27`)
 Release assets should use a distinct APK name such as:
 
 ```text
-ParallelEyeConverter-v0.1.26-debug.apk
+ParallelEyeConverter-v0.1.27-debug.apk
 ```
 
 环境、命令与架构见 [开发说明](docs/development.md)。实际证据、已知 Lint 问题、待真机验证项和
@@ -59,4 +59,5 @@ ParallelEyeConverter-v0.1.26-debug.apk
 中心距：在主界面拖动“中心距”滑杆，可从 50%（左右中心 1/4、3/4）调到约 66.7%
 （左右中心 1/6、5/6）；支持恢复默认并记忆设置。画面保持原有大小，向外移动后按各自半屏裁切。
 功能及验证说明见 [中心距说明](docs/center-distance.md)。
-v0.1.26 发布说明见 [release-notes-v0.1.26.md](release-notes-v0.1.26.md)。
+v0.1.27 增强采集停帧和切换后的恢复，补充录屏停止时的重新授权入口；
+说明见 [采集恢复修正](docs/capture-recovery.md) 和 [发布说明](release-notes-v0.1.27.md)。
