@@ -290,14 +290,15 @@ class ConverterProjectionService : Service() {
                 } else {
                     // Rebind the SAME display, even at the same size, after a stalled stream.
                     if (force) display.surface = null
-                    display.resize(width, height, dpi)
+                    // The resize notification must see the new Surface's default size.
                     display.surface = reader.surface
+                    display.resize(width, height, dpi)
                 }
             } catch (error: RuntimeException) {
                 if (display != null) {
                     runCatching {
-                        display.resize(currentCaptureWidth, currentCaptureHeight, currentDensityDpi)
                         display.surface = oldReader?.surface
+                        display.resize(currentCaptureWidth, currentCaptureHeight, currentDensityDpi)
                     }.onFailure { Log.w(TAG, "Previous capture surface could not be restored", it) }
                 }
                 reader.setOnImageAvailableListener(null, null)

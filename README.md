@@ -26,7 +26,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1
 Build output:
 
 ```text
-app/build/outputs/apk/debug/ParallelEyeConverter-v0.1.27-debug.apk
+app/build/outputs/apk/debug/ParallelEyeConverter-v0.1.28-debug.apk
 ```
 
 ## Release
@@ -37,7 +37,7 @@ Repository:
 https://github.com/7116-byte/ParallelEyeConverter
 ```
 
-Current version: `v0.1.27` (versionCode `28`)
+Current version: `v0.1.28` (versionCode `29`)
 
 包名：`com.local.paralleleyeconverter`。debug 构建显式使用 `.local/private/` 的原签名，
 不修改用户全局密钥。从 GitHub 克隆源码后仍需另行恢复这些本机资产，尤其是原签名。
@@ -45,7 +45,7 @@ Current version: `v0.1.27` (versionCode `28`)
 Release assets should use a distinct APK name such as:
 
 ```text
-ParallelEyeConverter-v0.1.27-debug.apk
+ParallelEyeConverter-v0.1.28-debug.apk
 ```
 
 环境、命令与架构见 [开发说明](docs/development.md)。实际证据、已知 Lint 问题、待真机验证项和
@@ -61,3 +61,5 @@ ParallelEyeConverter-v0.1.27-debug.apk
 功能及验证说明见 [中心距说明](docs/center-distance.md)。
 v0.1.27 增强采集停帧和切换后的恢复，补充录屏停止时的重新授权入口；
 说明见 [采集恢复修正](docs/capture-recovery.md) 和 [发布说明](release-notes-v0.1.27.md)。
+
+v0.1.28 修复单应用录屏横转竖后两眼画面一起偏移和裁切的问题。见 [发布说明](release-notes-v0.1.28.md)。
