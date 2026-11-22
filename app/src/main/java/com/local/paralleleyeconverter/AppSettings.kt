@@ -7,6 +7,9 @@ private const val KEY_TRUE_3D = "true_3d_rendering"
 private const val KEY_DEPTH_ANYTHING = "depth_anything_v2"
 private const val KEY_DEPTH_DISPARITY = "depth_disparity"
 private const val KEY_DEPTH_PERF_MODE = "depth_perf_mode"
+private const val KEY_DEPTH_PRECISION = "depth_precision"
+private const val KEY_DEPTH_LONG_EDGE = "depth_long_edge"
+private const val DEFAULT_DEPTH_LONG_EDGE = 644
 private const val KEY_CENTER_DISTANCE_RATIO = "center_distance_ratio"
 
 object AppSettings {
@@ -67,6 +70,33 @@ object AppSettings {
 
     internal fun depthModel(context: Context): DepthModel =
         if (depthAnythingEnabled(context)) DepthModel.DEPTH_ANYTHING else DepthModel.MIDAS
+
+    internal fun depthPrecision(context: Context): DepthPrecision {
+        val key = prefs(context).getString(KEY_DEPTH_PRECISION, null)
+        return DepthPrecision.entries.firstOrNull { it.key == key } ?: DepthPrecision.ORIGINAL
+    }
+
+    internal fun setDepthPrecision(context: Context, precision: DepthPrecision) {
+        prefs(context).edit().putString(KEY_DEPTH_PRECISION, precision.key)
+            .putBoolean(KEY_DEPTH_ANYTHING, true).apply()
+        DepthProcessor.reset()
+    }
+
+    internal fun depthLongEdge(context: Context): Int {
+        val value = prefs(context).getInt(KEY_DEPTH_LONG_EDGE, DEFAULT_DEPTH_LONG_EDGE)
+        return value.takeIf(DEPTH_LONG_EDGES::contains) ?: DEFAULT_DEPTH_LONG_EDGE
+    }
+
+    internal fun setDepthLongEdge(context: Context, longEdge: Int) {
+        require(longEdge in DEPTH_LONG_EDGES)
+        val precision = depthPrecision(context).takeUnless { it == DepthPrecision.ORIGINAL } ?: DepthPrecision.FP16
+        prefs(context).edit().putInt(KEY_DEPTH_LONG_EDGE, longEdge)
+            .putString(KEY_DEPTH_PRECISION, precision.key).putBoolean(KEY_DEPTH_ANYTHING, true).apply()
+        DepthProcessor.reset()
+    }
+
+    internal fun gpuDepthPrecision(context: Context): DepthPrecision? =
+        if (depthAnythingEnabled(context)) depthPrecision(context).takeUnless { it == DepthPrecision.ORIGINAL } else null
 
     fun perfLabel(context: Context): String {
         return when (perfMode(context)) {

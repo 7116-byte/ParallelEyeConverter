@@ -10,4 +10,13 @@
     <string name="return_sbs">返回授权应用并恢复平行眼</string>
     <string name="return_target_unknown">无法识别本次授权应用。请先回到原应用，或在主界面开启「授权前台识别」。</string>
     <string name="return_target_unavailable">未收到授权应用的画面。请回到该应用后再点悬浮球。</string>
+    <string name="depth_precision_setting">量化版本</string>
+    <string name="depth_resolution_setting">推理分辨率</string>
+    <string name="depth_original">原版 518（CPU）</string>
+    <string name="depth_fp16">FP16（GPU）</string>
+    <string name="depth_int8">INT8（GPU）</string>
+    <string name="depth_rotated_int8">旋转 INT8（GPU）</string>
+    <string name="depth_resolution_long_edge">长边 %1$d px</string>
+    <string name="depth_resolution_hint">开启真 3D 后生效。分辨率按推理长边设置，短边按比例取到 14 像素的倍数。</string>
+    <string name="depth_int8_hint">INT8 使用量化模型，平板 GPU 以浮点计算，速度可能低于 FP16。</string>
 </resources>

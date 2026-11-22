@@ -1,5 +1,6 @@
 import com.android.build.gradle.internal.api.BaseVariantOutputImpl
 import java.util.Properties
+import javax.inject.Inject
 
 plugins {
     id("com.android.application")
@@ -16,6 +17,43 @@ val privateSigning = Properties().apply {
 val originalDebugKey = rootProject.file(".local/private/debug.keystore")
 check(originalDebugKey.isFile) { "Missing original project debug key in .local/private" }
 
+val qnnNotices by configurations.creating {
+    isCanBeConsumed = false
+    isTransitive = false
+}
+
+abstract class CollectQnnNotices : DefaultTask() {
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val runtimeArchive: ConfigurableFileCollection
+
+    @get:OutputDirectory
+    abstract val assetsDirectory: DirectoryProperty
+
+    @get:Inject
+    abstract val archives: ArchiveOperations
+
+    @get:Inject
+    abstract val files: FileSystemOperations
+
+    @TaskAction
+    fun collect() {
+        files.sync {
+            from(archives.zipTree(runtimeArchive.singleFile)) {
+                include("LICENSE.pdf", "NOTICE.txt")
+                into("third-party/qnn")
+            }
+            into(assetsDirectory)
+        }
+    }
+}
+
+val collectQnnNotices by tasks.registering(CollectQnnNotices::class) {
+    // Preserve the notices from the same Maven AAR that supplies the bundled GPU runtime.
+    runtimeArchive.from(qnnNotices)
+    assetsDirectory.set(layout.buildDirectory.dir("generated/qnn-assets"))
+}
+
 android {
     namespace = "com.local.paralleleyeconverter"
     compileSdk = 35
@@ -24,8 +62,8 @@ android {
         applicationId = "com.local.paralleleyeconverter"
         minSdk = 26
         targetSdk = 35
-        versionCode = 30
-        versionName = "0.1.29"
+        versionCode = 31
+        versionName = "0.1.30"
 
     }
 
@@ -44,6 +82,21 @@ android {
 
     androidResources {
         noCompress += "tflite"
+        noCompress += "onnx"
+    }
+
+    packaging {
+        jniLibs {
+            // QNN opens its GPU backend from the installed native library directory.
+            useLegacyPackaging = true
+            excludes += setOf("**/libQnnDsp*.so", "**/libQnnHtp*.so")
+        }
+    }
+}
+
+androidComponents {
+    onVariants { variant ->
+        variant.sources.assets?.addGeneratedSourceDirectory(collectQnnNotices, CollectQnnNotices::assetsDirectory)
     }
 }
 
@@ -60,4 +113,6 @@ kotlin {
 
 dependencies {
     implementation("org.tensorflow:tensorflow-lite:2.16.1")
+    implementation("com.microsoft.onnxruntime:onnxruntime-android-qnn:1.29.0")
+    qnnNotices("com.qualcomm.qti:qnn-runtime:2.42.0@aar")
 }

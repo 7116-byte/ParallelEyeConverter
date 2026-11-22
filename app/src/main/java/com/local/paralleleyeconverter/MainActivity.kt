@@ -2,6 +2,7 @@ package com.local.paralleleyeconverter
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.app.DownloadManager
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -31,7 +32,7 @@ import kotlin.math.roundToInt
 
 private const val GITHUB_OWNER = "7116-byte"
 private const val GITHUB_REPO = "ParallelEyeConverter"
-private const val CURRENT_VERSION = "0.1.29"
+private const val CURRENT_VERSION = "0.1.30"
 
 private const val TEXT_APP_NAME = "\u5b9e\u65f6\u5e73\u884c\u773c\u8f6c\u5316"
 private const val TEXT_SUBTITLE = "\u5f55\u5c4f\u6355\u83b7  /  \u60ac\u6d6e\u7403  /  \u5de6\u53f3\u773c\u8f93\u51fa"
@@ -54,6 +55,8 @@ class MainActivity : Activity() {
     private lateinit var statusText: TextView
     private lateinit var downloadButton: Button
     private lateinit var settingsText: TextView
+    private lateinit var depthPrecisionButton: Button
+    private lateinit var depthResolutionButton: Button
     private var updateUrl: String? = null
     private var updateDownloadId: Long = -1L
     private var updateReceiverRegistered = false
@@ -242,6 +245,56 @@ class MainActivity : Activity() {
         }, weightedParams(start = dp(6)))
         content.addView(row1, fullWidthParams(top = dp(10), height = dp(48)))
 
+        depthPrecisionButton = secondaryButton(getString(R.string.depth_precision_setting)).apply {
+            setOnClickListener {
+                val choices = DepthPrecision.entries
+                val selected = if (AppSettings.depthAnythingEnabled(this@MainActivity)) {
+                    AppSettings.depthPrecision(this@MainActivity).ordinal
+                } else {
+                    -1
+                }
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle(R.string.depth_precision_setting)
+                    .setSingleChoiceItems(choices.map { getString(it.labelRes) }.toTypedArray(), selected) { dialog, index ->
+                        AppSettings.setDepthPrecision(this@MainActivity, choices[index])
+                        refreshSettingsText()
+                        dialog.dismiss()
+                    }
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show()
+            }
+        }
+        depthResolutionButton = secondaryButton(getString(R.string.depth_resolution_setting)).apply {
+            setOnClickListener {
+                val selected = if (AppSettings.gpuDepthPrecision(this@MainActivity) != null) {
+                    DEPTH_LONG_EDGES.indexOf(AppSettings.depthLongEdge(this@MainActivity))
+                } else {
+                    -1
+                }
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle(R.string.depth_resolution_setting)
+                    .setSingleChoiceItems(
+                        DEPTH_LONG_EDGES.map { getString(R.string.depth_resolution_long_edge, it) }.toTypedArray(),
+                        selected,
+                    ) { dialog, index ->
+                        AppSettings.setDepthLongEdge(this@MainActivity, DEPTH_LONG_EDGES[index])
+                        refreshSettingsText()
+                        dialog.dismiss()
+                    }
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show()
+            }
+        }
+        val depthOptions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        depthOptions.addView(depthPrecisionButton, weightedParams(end = dp(6)))
+        depthOptions.addView(depthResolutionButton, weightedParams(start = dp(6)))
+        content.addView(depthOptions, fullWidthParams(top = dp(10), height = dp(48)))
+        content.addView(TextView(this).apply {
+            text = listOf(R.string.depth_resolution_hint, R.string.depth_int8_hint).joinToString("\n") { getString(it) }
+            textSize = 12f
+            setTextColor(Color.rgb(199, 211, 224))
+        }, fullWidthParams(top = dp(6)))
+
         content.addView(secondaryButton("\u6027\u80fd\u6863").apply {
             setOnClickListener {
                 val next = (AppSettings.perfMode(this@MainActivity) + 1) % 3
@@ -270,11 +323,23 @@ class MainActivity : Activity() {
     private fun refreshSettingsText() {
         val enabled = if (AppSettings.true3dEnabled(this)) "\u5f00" else "\u5173"
         val model = AppSettings.depthModel(this)
+        val gpuPrecision = AppSettings.gpuDepthPrecision(this)
+        val input = if (gpuPrecision != null) {
+            getString(R.string.depth_resolution_long_edge, AppSettings.depthLongEdge(this))
+        } else {
+            "${model.side} × ${model.side}"
+        }
+        depthPrecisionButton.text = if (AppSettings.depthAnythingEnabled(this)) {
+            getString(AppSettings.depthPrecision(this).labelRes)
+        } else {
+            getString(R.string.depth_precision_setting)
+        }
+        depthResolutionButton.text = if (gpuPrecision != null) input else getString(R.string.depth_resolution_setting)
         settingsText.text =
             "\u771f 3D\uff1a$enabled\n" +
                 "\u6a21\u578b\uff1a${model.label}\n" +
                 "\u6027\u80fd\uff1a${AppSettings.perfLabel(this)}\n" +
-                "\u6a21\u578b\u8f93\u5165\uff1a${model.side} \u00d7 ${model.side}\n" +
+                "\u6a21\u578b\u8f93\u5165\uff1a$input\n" +
                 "\u89c6\u5dee\uff1a${"%.1f".format(AppSettings.disparity(this))}"
     }
 

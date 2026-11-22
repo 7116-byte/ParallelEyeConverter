@@ -1,0 +1,13 @@
+The dav2-gpu-fp16.onnx, dav2-gpu-int8.onnx and dav2-gpu-rotated-int8.onnx
+models are derived from Depth Anything V2 Small by Lihe Yang, Bingyi Kang,
+Zilong Huang, Zhen Zhao, Xiaogang Xu, Jiashi Feng and Hengshuang Zhao.
+The Small model is licensed under Apache License 2.0. See the accompanying
+depth-anything-v2-small-LICENSE.txt.
+
+Original project: https://github.com/DepthAnything/Depth-Anything-V2
+Source ONNX export: https://huggingface.co/onnx-community/depth-anything-v2-small/tree/4472b7362082ad9968fee890ca0f1e5aca36b93d
+
+ParallelEyeConverter modifies the exports for variable input sizes, FP16 or
+calibrated INT8 weights and activations, and execution on the Android QNN GPU
+backend. The rotated INT8 export uses an orthogonal change of basis in the
+attention layers before quantization.

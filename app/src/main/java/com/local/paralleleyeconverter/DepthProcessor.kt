@@ -37,6 +37,7 @@ object DepthProcessor {
 
     // Only the inference worker accesses the interpreter and its buffers.
     private var session: DepthSession? = null
+    private var gpuSession: GpuDepthSession? = null
 
     fun reset() = synchronized(lock) {
         clearFrame()
@@ -62,12 +63,17 @@ object DepthProcessor {
         if (framesSinceSubmit < interval && DepthBus.latestDepth != null) return
 
         val requested = AppSettings.depthModel(context)
-        val side = requested.side
-        val copy = snapshot?.takeIf { it.width == side }
-            ?: Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888).also { snapshot = it }
+        val precision = AppSettings.gpuDepthPrecision(context)
+        val size = if (precision == null) {
+            DepthInputSize(requested.side, requested.side)
+        } else {
+            DepthInputSize.forAspectRatio(bitmap.width, bitmap.height, AppSettings.depthLongEdge(context))
+        }
+        val copy = snapshot?.takeIf { it.width == size.width && it.height == size.height }
+            ?: Bitmap.createBitmap(size.width, size.height, Bitmap.Config.ARGB_8888).also { snapshot = it }
         // Capture updates its full-size bitmap in place. Copy it before handing work off.
         copy.eraseColor(0)
-        Canvas(copy).drawBitmap(bitmap, null, Rect(0, 0, side, side), paint)
+        Canvas(copy).drawBitmap(bitmap, null, Rect(0, 0, size.width, size.height), paint)
         val submittedGeneration = generation
         val app = context.applicationContext
         busy = true
@@ -76,11 +82,21 @@ object DepthProcessor {
         worker.execute {
             try {
                 val start = SystemClock.elapsedRealtime()
-                val (model, values) = infer(app, requested, copy)
+                val label: String
+                val depthSize: DepthInputSize
+                val values = if (precision == null) {
+                    val (model, values) = infer(app, requested, copy)
+                    label = if (model == requested) model.label else "${model.label} fallback"
+                    depthSize = DepthInputSize(model.side, model.side)
+                    values
+                } else {
+                    label = app.getString(precision.labelRes)
+                    depthSize = size
+                    inferGpu(app, precision, size, copy)
+                }
                 synchronized(lock) {
                     if (generation != submittedGeneration) return@execute
                     val elapsed = SystemClock.elapsedRealtime() - start
-                    val label = if (model == requested) model.label else "${model.label} fallback"
                     if (values == null) {
                         DepthBus.lastStatus = if (DepthBus.latestDepth == null) {
                             "$label: no usable depth (2D)"
@@ -89,25 +105,38 @@ object DepthProcessor {
                         }
                     } else {
                         val first = DepthBus.latestDepth == null
-                        DepthBus.publish(DepthFrame(values, model.side, model.side, frameVersion, label), elapsed)
+                        DepthBus.publish(DepthFrame(values, depthSize.width, depthSize.height, frameVersion, label), elapsed)
                         if (first) Log.i(TAG, "First usable depth: ${DepthBus.lastStatus}")
                     }
                 }
             } catch (error: Throwable) {
                 if (!isInferenceFailure(error)) throw error
                 closeSession()
-                Log.w(TAG, "${requested.label} inference failed", error)
+                val option = precision?.let { app.getString(it.labelRes) } ?: requested.label
+                Log.w(TAG, "$option ${size.width}x${size.height} inference failed", error)
                 synchronized(lock) {
                     if (generation == submittedGeneration) {
                         retryAfterMs = SystemClock.elapsedRealtime() + RETRY_DELAY_MS
                         DepthBus.clear()
-                        DepthBus.lastStatus = "3D failed (2D): ${error.javaClass.simpleName}"
+                        DepthBus.lastStatus = if (precision == null) {
+                            "3D failed (2D): ${error.javaClass.simpleName}"
+                        } else {
+                            "${app.getString(precision.labelRes)} ${size.width}x${size.height}: GPU failed (2D)"
+                        }
                     }
                 }
             } finally {
                 synchronized(lock) { busy = false }
             }
         }
+    }
+
+    private fun inferGpu(context: Context, precision: DepthPrecision, size: DepthInputSize, frame: Bitmap): FloatArray? {
+        val active = gpuSession?.takeIf { it.precision == precision && it.size == size } ?: run {
+            closeSession()
+            GpuDepthSession.open(context, precision, size).also { gpuSession = it }
+        }
+        return active.run(frame)
     }
 
     private fun infer(context: Context, requested: DepthModel, frame: Bitmap): Pair<DepthModel, FloatArray?> {
@@ -127,7 +156,10 @@ object DepthProcessor {
     private fun closeSession() {
         val previous = session
         session = null
+        val previousGpu = gpuSession
+        gpuSession = null
         previous?.close()
+        previousGpu?.close()
     }
 
     private fun isInferenceFailure(error: Throwable): Boolean =

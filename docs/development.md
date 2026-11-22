@@ -119,9 +119,9 @@ v0.1.27 / versionCode 28 的采集恢复发布检查见 `docs/releases/v0.1.27.m
 - ConverterOverlayService：悬浮球、分屏重入、方向变化、控制条；左滑打开右侧 64dp 透控通道，右滑关闭。
   中线与通道边线均为 3 物理像素；StereoFrameRenderer 按深度和视差绘制左右眼。
 - ConverterTileService：通知栏快捷入口；API 34+ 使用 PendingIntent，旧系统路径保留 Intent。
-- DepthProcessor：assets.openFd + FileChannel.map 模型映射。模型使用固定输入 MiDaS 256×256 和
-  Depth Anything V2 518×518。推理在独立工作线程运行，最多处理一帧，复用输入输出缓冲；
-  Depth Anything 执行失败时尝试 MiDaS，仍失败时保持普通 SBS 并记录日志。
+- DepthProcessor 使用单独工作线程执行推理，最多处理一帧，复用输入缓冲。原版 MiDaS 256×256 和
+  Depth Anything V2 518×518 继续使用 TFLite。GPU 版本使用额外的 ONNX 模型，以 448、644 或 812 为长边，
+  按采集画面比例选取短边，关闭 CPU 推理回退。模型来源、离线依赖和真机检查见 [GPU 深度设置](depth-gpu.md)。
 - StereoFrameRenderer：左右眼使用同一张源图和同一深度结果，深度变形的长边上限为 720 像素，
   相邻两次变形间隔至少 33 ms。普通 SBS 继续使用原采集帧。
 
