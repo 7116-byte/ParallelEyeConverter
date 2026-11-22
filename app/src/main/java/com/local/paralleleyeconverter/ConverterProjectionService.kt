@@ -176,6 +176,7 @@ class ConverterProjectionService : Service() {
                 captureStopped = true
                 capturedContentVisible = false
                 recovery.stop()
+                DepthProcessor.clearFrame()
                 synchronized(captureLock) { FrameBus.clear() }
                 Log.i(TAG, "Projection stopped; fresh user authorization is required")
                 stopSelf()
@@ -196,7 +197,7 @@ class ConverterProjectionService : Service() {
                 recovery.setVisible(isVisible, SystemClock.elapsedRealtime())
                 if (!isVisible) {
                     FrameBus.clear(CaptureState.HIDDEN)
-                    DepthBus.clear()
+                    DepthProcessor.clearFrame()
                 } else if (!wasVisible) {
                     FrameBus.clear(CaptureState.WAITING)
                     scheduleRebuild(0L, force = true)
@@ -263,8 +264,8 @@ class ConverterProjectionService : Service() {
                         }
                     }
                     if (frame != null && projection === localProjection && !captureStopped) {
-                        // Release the Image and resource lock before potentially slow inference.
-                        DepthProcessor.processFrame(this, frame, FrameBus.frameVersion)
+                        // Release the Image before copying pixels for the inference worker.
+                        DepthProcessor.submitFrame(this, frame, FrameBus.frameVersion)
                     }
                 }.onFailure {
                     if (projection === localProjection && !captureStopped) {
@@ -306,6 +307,7 @@ class ConverterProjectionService : Service() {
                 throw error
             }
             imageReader = reader
+            DepthProcessor.clearFrame()
             reusableBitmap = null
             reusableOutputBitmap = null
             reusableOutputCanvas = null

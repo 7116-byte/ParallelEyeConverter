@@ -114,13 +114,16 @@ v0.1.27 / versionCode 28 的采集恢复发布检查见 `docs/releases/v0.1.27.m
 - ConverterProjectionService：前台 mediaProjection 服务、授权回调、半分辨率 ImageReader、尺寸重建及帧看门狗。
 - CaptureRecovery：无首帧/停帧超时、重试间隔和可见性/停止状态；同尺寸强制换 Surface 的修正及验证见 `docs/capture-recovery.md`。
 - FrameBus / DepthBus：图像和深度结果及版本信息。
-- ForegroundAppHelper：基于使用情况授权，学习本次授权后的第一个可启动目标，排除自身、桌面和临时系统页；
-  重入分屏时按需拉起目标，退出时清空，不是跨授权永久记忆。
+- ForegroundAppHelper：基于使用情况授权，从系统录屏授权页打开时起学习本次录屏的可启动目标，
+  排除自身、桌面和临时系统页。单击悬浮球时按需拉起目标，收到有效画面后恢复分屏；当前录屏目标随会话退出清空。
 - ConverterOverlayService：悬浮球、分屏重入、方向变化、控制条；左滑打开右侧 64dp 透控通道，右滑关闭。
   中线与通道边线均为 3 物理像素；StereoFrameRenderer 按深度和视差绘制左右眼。
 - ConverterTileService：通知栏快捷入口；API 34+ 使用 PendingIntent，旧系统路径保留 Intent。
-- DepthProcessor：assets.openFd + FileChannel.map 模型映射、CPU 4 线程、输入/输出缓冲与位图复用；
-  保留推理间隔、分辨率尝试及原生尺寸回退、Depth Anything 失败时 MiDaS 回退等原行为。
+- DepthProcessor：assets.openFd + FileChannel.map 模型映射。模型使用固定输入 MiDaS 256×256 和
+  Depth Anything V2 518×518。推理在独立工作线程运行，最多处理一帧，复用输入输出缓冲；
+  Depth Anything 执行失败时尝试 MiDaS，仍失败时保持普通 SBS 并记录日志。
+- StereoFrameRenderer：左右眼使用同一张源图和同一深度结果，深度变形的长边上限为 720 像素，
+  相邻两次变形间隔至少 33 ms。普通 SBS 继续使用原采集帧。
 
 两个在用深度模型在 APK 中必须为 Stored（未压缩），保持 noCompress 规则。
 第三个 mediapipe_selfie.tflite 也保留；验收检查三个模型源文件及原/新 APK 中的哈希、尺寸和压缩方式。
@@ -134,9 +137,9 @@ v0.1.27 / versionCode 28 的采集恢复发布检查见 `docs/releases/v0.1.27.m
 ConverterOverlayService 和字符串资源；已属于功能改动，不再声称当前代码与恢复基线逐字节或指令一致。
 原始恢复与 Lint 修正证据保持不变，当前功能单独记录于 `docs/center-distance.md`。
 
-3D 闪退仍待设备日志定案。另行授权真机任务后，保存机型/Android 版本、授权流程、模型/分辨率/性能档、
-复现步骤和完整 logcat；必要时补充 native crash/tombstone 信息，不能仅凭异常提示或构建成功判定原因。
-设备验证矩阵和删除条件见 `docs/restore-acceptance.md`。
+旧版 3D 闪退已在 Android 17 平板以 MiDaS 480P 复现，原生栈位于 TensorFlow Lite 张量分配。
+v0.1.29 已验证抖音单击返回 SBS、两个原生尺寸模型的推理和实际左右眼视差。见 [v0.1.29 发布验收](releases/v0.1.29.md)。
+验收范围与备份删除条件见 `docs/restore-acceptance.md`。
 
 ## 后续版本规则
 

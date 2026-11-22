@@ -25,18 +25,20 @@ object ForegroundAppHelper {
         return mode == AppOpsManager.MODE_ALLOWED
     }
 
-    fun readForegroundPackage(context: Context): String? {
+    fun readForegroundPackage(context: Context, windowMs: Long = 6 * 60 * 60 * 1000L): String? {
         if (!hasUsageAccess(context)) return null
-        return readUsageEvents(context, 6 * 60 * 60 * 1000L)
+        return readUsageEvents(context, windowMs)
             .lastOrNull { !isTransientSystemPackage(it.packageName) }
             ?.packageName
     }
 
-    fun beginTargetLearning(context: Context) {
+    fun beginTargetLearning(context: Context, consentRequestedAt: Long) {
+        // The selected task can resume before the projection result reaches our activity.
+        val now = System.currentTimeMillis()
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .remove(KEY_TARGET_PACKAGE)
-            .putLong(KEY_TARGET_LEARNING_STARTED_AT, System.currentTimeMillis())
+            .putLong(KEY_TARGET_LEARNING_STARTED_AT, consentRequestedAt.coerceIn(now - 30_000L, now))
             .apply()
     }
 

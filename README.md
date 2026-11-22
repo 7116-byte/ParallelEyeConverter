@@ -8,7 +8,7 @@ Android 实时平行眼转换应用。源码与 `.git/` 直接位于正式开发
 - Uses Android `MediaProjection` for screen capture.
 - Runs capture in a foreground service.
 - Shows the captured frame as left/right parallel-eye output in an overlay.
-- Supports a floating ball for minimizing and reopening the converter.
+- With Usage Access enabled, tap the floating ball once to return to the authorized capture target and restore SBS.
 - Supports a saved center-distance slider from half to two-thirds of the split-screen width, for both 2D and 3D.
 - Supports optional real-time depth-based 3D conversion with MiDaS or Depth Anything V2.
 - Provides GitHub Release based update checks from inside the app.
@@ -26,7 +26,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1
 Build output:
 
 ```text
-app/build/outputs/apk/debug/ParallelEyeConverter-v0.1.28-debug.apk
+app/build/outputs/apk/debug/ParallelEyeConverter-v0.1.29-debug.apk
 ```
 
 ## Release
@@ -37,7 +37,7 @@ Repository:
 https://github.com/7116-byte/ParallelEyeConverter
 ```
 
-Current version: `v0.1.28` (versionCode `29`)
+Current version: `v0.1.29` (versionCode `30`)
 
 包名：`com.local.paralleleyeconverter`。debug 构建显式使用 `.local/private/` 的原签名，
 不修改用户全局密钥。从 GitHub 克隆源码后仍需另行恢复这些本机资产，尤其是原签名。
@@ -45,12 +45,12 @@ Current version: `v0.1.28` (versionCode `29`)
 Release assets should use a distinct APK name such as:
 
 ```text
-ParallelEyeConverter-v0.1.28-debug.apk
+ParallelEyeConverter-v0.1.29-debug.apk
 ```
 
 环境、命令与架构见 [开发说明](docs/development.md)。实际证据、已知 Lint 问题、待真机验证项和
 备份删除条件见 [恢复验收记录](docs/restore-acceptance.md)。恢复阶段的原始记录完整保留。
-恢复构建成功不代表 3D 闪退已修复；本次未进行设备安装或运行态验证。
+原恢复阶段的构建验收与后续真机验收分别记录。
 
 原恢复的 3 处 Lint 误报已通过局部规则例外处理，目前离线 Lint 为 0 错误、25 警告。
 `scripts/accept-restore.ps1` 保留为原始恢复源码的严格字节验收脚本，当前源码注解已变化，
@@ -63,3 +63,6 @@ v0.1.27 增强采集停帧和切换后的恢复，补充录屏停止时的重新
 说明见 [采集恢复修正](docs/capture-recovery.md) 和 [发布说明](release-notes-v0.1.27.md)。
 
 v0.1.28 修复单应用录屏横转竖后两眼画面一起偏移和裁切的问题。见 [发布说明](release-notes-v0.1.28.md)。
+
+v0.1.29 支持单击悬浮球返回目标应用并恢复 SBS，修复固定尺寸深度模型的推理问题。
+见 [发布说明](release-notes-v0.1.29.md) 和 [真机验收](docs/releases/v0.1.29.md)。

@@ -3,261 +3,243 @@ package com.local.paralleleyeconverter
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Paint
 import android.graphics.Rect
 import android.os.SystemClock
+import android.util.Log
 import org.tensorflow.lite.DataType
 import org.tensorflow.lite.Interpreter
+import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.channels.FileChannel
-import java.io.FileInputStream
-import kotlin.math.max
-import kotlin.math.min
+import java.util.concurrent.Executors
+import kotlin.math.roundToInt
+
+internal enum class DepthModel(val label: String, val asset: String, val side: Int) {
+    MIDAS("MiDaS", "midas-v2-w8a8.tflite", 256),
+    DEPTH_ANYTHING("Depth Anything V2", "depth_anything_v2.tflite", 518),
+}
 
 object DepthProcessor {
-    private const val MIDAS_ASSET = "midas-v2-w8a8.tflite"
-    private const val DEPTH_ANYTHING_ASSET = "depth_anything_v2.tflite"
-
+    private const val TAG = "ParallelEyeDepth"
+    private const val RETRY_DELAY_MS = 5000L
+    private val worker = Executors.newSingleThreadExecutor { task ->
+        Thread(task, "eye-depth").apply { priority = Thread.NORM_PRIORITY - 1 }
+    }
     private val lock = Any()
-    private var interpreter: Interpreter? = null
-    private var activeModelBuffer: ByteBuffer? = null
-    private var activeAsset: String? = null
-    private var activeResolutionMode = -1
-    private var inputWidth = 0
-    private var inputHeight = 0
-    private var inputType = DataType.FLOAT32
-    private var outputWidth = 0
-    private var outputHeight = 0
-    private var outputType = DataType.FLOAT32
-    private var outputElements = 0
-    private var frameCounter = 0L
-    private var inputBuffer: ByteBuffer? = null
-    private var outputBuffer: ByteBuffer? = null
-    private var scaledBitmap: Bitmap? = null
-    private var inputPixels = IntArray(0)
+    private val paint = Paint(Paint.FILTER_BITMAP_FLAG)
+    private var generation = 0L
+    private var framesSinceSubmit = 0
+    private var busy = false
+    private var retryAfterMs = 0L
+    private var snapshot: Bitmap? = null
 
-    fun reset() {
-        synchronized(lock) {
-            interpreter?.close()
-            interpreter = null
-            activeModelBuffer = null
-            activeAsset = null
-            activeResolutionMode = -1
-            frameCounter = 0L
-            clearWorkingBuffers()
-            DepthBus.clear()
+    // Only the inference worker accesses the interpreter and its buffers.
+    private var session: DepthSession? = null
+
+    fun reset() = synchronized(lock) {
+        clearFrame()
+        snapshot = null
+        worker.execute {
+            closeSession()
         }
+        Unit
     }
 
-    fun processFrame(context: Context, bitmap: Bitmap, frameVersion: Long) {
-        if (!AppSettings.true3dEnabled(context)) {
-            DepthBus.clear()
-            return
-        }
-        synchronized(lock) {
-            frameCounter++
-            val interval = AppSettings.inferenceInterval(context)
-            val model = AppSettings.modelName(context)
-            if (frameCounter % interval != 0L && DepthBus.latestDepth != null) {
-                DepthBus.markReuse(model)
-                return
-            }
-            val localInterpreter = ensureInterpreter(context) ?: return
-            val started = SystemClock.elapsedRealtime()
-            runCatching {
-                val input = buildInput(bitmap)
-                val outputBytes = outputElements * bytesPerElement(outputType)
-                val output = outputBuffer?.takeIf { it.capacity() == outputBytes }
-                    ?: ByteBuffer.allocateDirect(outputBytes).order(ByteOrder.nativeOrder()).also { outputBuffer = it }
-                output.clear()
-                localInterpreter.run(input, output)
-                output.rewind()
-                val values = readOutput(output)
-                DepthBus.publish(
-                    DepthFrame(
-                        values = values,
-                        width = outputWidth,
-                        height = outputHeight,
-                        sourceFrameVersion = frameVersion,
-                        model = model,
-                        reused = false,
-                    ),
-                    SystemClock.elapsedRealtime() - started,
-                )
-            }.onFailure { error ->
-                DepthBus.markUnavailable("3D failed: ${error.javaClass.simpleName}")
-            }
-        }
+    fun clearFrame() = synchronized(lock) {
+        generation++
+        framesSinceSubmit = 0
+        retryAfterMs = 0L
+        DepthBus.clear()
     }
 
-    private fun ensureInterpreter(context: Context): Interpreter? {
-        val wantedAsset = if (AppSettings.depthAnythingEnabled(context)) DEPTH_ANYTHING_ASSET else MIDAS_ASSET
-        val wantedResolution = AppSettings.depthResolutionMode(context)
-        val current = interpreter
-        if (current != null && activeAsset == wantedAsset && activeResolutionMode == wantedResolution) {
-            return current
-        }
-        interpreter?.close()
-        interpreter = null
-        activeModelBuffer = null
-        clearWorkingBuffers()
-        return createInterpreter(context, wantedAsset, wantedResolution)
-            ?: if (wantedAsset != MIDAS_ASSET) createInterpreter(context, MIDAS_ASSET, AppSettings.RES_NATIVE) else null
-    }
+    fun submitFrame(context: Context, bitmap: Bitmap, frameVersion: Long) = synchronized(lock) {
+        if (!AppSettings.true3dEnabled(context)) return
+        val interval = AppSettings.inferenceInterval(context)
+        framesSinceSubmit = (framesSinceSubmit + 1).coerceAtMost(interval)
+        if (busy || SystemClock.elapsedRealtime() < retryAfterMs) return
+        if (framesSinceSubmit < interval && DepthBus.latestDepth != null) return
 
-    private fun createInterpreter(context: Context, assetName: String, resolutionMode: Int): Interpreter? {
-        var created: Interpreter? = null
-        return runCatching {
-            val modelBuffer = context.assets.openFd(assetName).use { descriptor ->
-                FileInputStream(descriptor.fileDescriptor).use { input ->
-                    input.channel.map(FileChannel.MapMode.READ_ONLY, descriptor.startOffset, descriptor.length)
+        val requested = AppSettings.depthModel(context)
+        val side = requested.side
+        val copy = snapshot?.takeIf { it.width == side }
+            ?: Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888).also { snapshot = it }
+        // Capture updates its full-size bitmap in place. Copy it before handing work off.
+        copy.eraseColor(0)
+        Canvas(copy).drawBitmap(bitmap, null, Rect(0, 0, side, side), paint)
+        val submittedGeneration = generation
+        val app = context.applicationContext
+        busy = true
+        framesSinceSubmit = 0
+        if (DepthBus.latestDepth == null) DepthBus.lastStatus = "3D computing..."
+        worker.execute {
+            try {
+                val start = SystemClock.elapsedRealtime()
+                val (model, values) = infer(app, requested, copy)
+                synchronized(lock) {
+                    if (generation != submittedGeneration) return@execute
+                    val elapsed = SystemClock.elapsedRealtime() - start
+                    val label = if (model == requested) model.label else "${model.label} fallback"
+                    if (values == null) {
+                        DepthBus.lastStatus = if (DepthBus.latestDepth == null) {
+                            "$label: no usable depth (2D)"
+                        } else {
+                            "$label: reusing last usable depth"
+                        }
+                    } else {
+                        val first = DepthBus.latestDepth == null
+                        DepthBus.publish(DepthFrame(values, model.side, model.side, frameVersion, label), elapsed)
+                        if (first) Log.i(TAG, "First usable depth: ${DepthBus.lastStatus}")
+                    }
                 }
-            }
-            val options = Interpreter.Options().apply {
-                setNumThreads(4)
-            }
-            val interpreter = Interpreter(modelBuffer, options)
-            created = interpreter
-            val nativeShape = interpreter.getInputTensor(0).shape()
-            val target = targetInputShape(nativeShape, resolutionMode)
-            if (target != null && !target.contentEquals(nativeShape)) {
-                runCatching {
-                    interpreter.resizeInput(0, target)
-                    interpreter.allocateTensors()
-                }.onFailure {
-                    interpreter.resizeInput(0, nativeShape)
-                    interpreter.allocateTensors()
-                    DepthBus.markUnavailable("depth resolution: fallback native")
+            } catch (error: Throwable) {
+                if (!isInferenceFailure(error)) throw error
+                closeSession()
+                Log.w(TAG, "${requested.label} inference failed", error)
+                synchronized(lock) {
+                    if (generation == submittedGeneration) {
+                        retryAfterMs = SystemClock.elapsedRealtime() + RETRY_DELAY_MS
+                        DepthBus.clear()
+                        DepthBus.lastStatus = "3D failed (2D): ${error.javaClass.simpleName}"
+                    }
                 }
-            } else {
-                interpreter.allocateTensors()
+            } finally {
+                synchronized(lock) { busy = false }
             }
-            configureTensorInfo(interpreter)
-            this.interpreter = interpreter
-            activeModelBuffer = modelBuffer
-            activeAsset = assetName
-            activeResolutionMode = resolutionMode
-            DepthBus.markUnavailable("3D ready: ${if (assetName == DEPTH_ANYTHING_ASSET) "Depth Anything V2" else "MiDaS"}")
-            interpreter
-        }.getOrElse { error ->
-            created?.close()
-            DepthBus.markUnavailable("3D init failed: ${error.javaClass.simpleName}")
-            null
         }
     }
 
-    private fun targetInputShape(nativeShape: IntArray, resolutionMode: Int): IntArray? {
-        if (nativeShape.size != 4 || resolutionMode == AppSettings.RES_NATIVE) return null
-        val targetSide = when (resolutionMode) {
-            AppSettings.RES_360P -> 360
-            AppSettings.RES_480P -> 480
-            AppSettings.RES_720P -> 720
-            else -> return null
-        }
-        return intArrayOf(nativeShape[0], targetSide, targetSide, nativeShape[3])
-    }
-
-    private fun configureTensorInfo(created: Interpreter) {
-        val inputTensor = created.getInputTensor(0)
-        val inputShape = inputTensor.shape()
-        inputHeight = inputShape.getOrElse(1) { 256 }
-        inputWidth = inputShape.getOrElse(2) { inputHeight }
-        inputType = inputTensor.dataType()
-
-        val outputTensor = created.getOutputTensor(0)
-        val outputShape = outputTensor.shape()
-        outputType = outputTensor.dataType()
-        outputElements = outputShape.fold(1) { acc, value -> acc * max(1, value) }
-        val dims = inferOutputDims(outputShape)
-        outputHeight = dims.first
-        outputWidth = dims.second
-        if (outputWidth * outputHeight > outputElements) {
-            outputWidth = max(1, outputElements)
-            outputHeight = 1
+    private fun infer(context: Context, requested: DepthModel, frame: Bitmap): Pair<DepthModel, FloatArray?> {
+        val model = session?.model ?: requested
+        return try {
+            val active = session ?: DepthSession.open(context, model).also { session = it }
+            model to active.run(frame)
+        } catch (error: Throwable) {
+            if (model == DepthModel.MIDAS || !isInferenceFailure(error)) throw error
+            Log.w(TAG, "${model.label} failed; trying MiDaS", error)
+            closeSession()
+            val fallback = DepthSession.open(context, DepthModel.MIDAS).also { session = it }
+            fallback.model to fallback.run(frame)
         }
     }
 
-    private fun inferOutputDims(shape: IntArray): Pair<Int, Int> {
-        return when {
-            shape.size >= 4 && shape[3] == 1 -> shape[1] to shape[2]
-            shape.size >= 4 && shape[1] == 1 -> shape[2] to shape[3]
-            shape.size >= 3 -> shape[1] to shape[2]
-            shape.size >= 2 -> shape[0] to shape[1]
-            else -> 1 to max(1, shape.firstOrNull() ?: 1)
-        }
+    private fun closeSession() {
+        val previous = session
+        session = null
+        previous?.close()
     }
 
-    private fun buildInput(bitmap: Bitmap): ByteBuffer {
-        val bytes = inputWidth * inputHeight * 3 * bytesPerElement(inputType)
-        val input = inputBuffer?.takeIf { it.capacity() == bytes }
-            ?: ByteBuffer.allocateDirect(bytes).order(ByteOrder.nativeOrder()).also { inputBuffer = it }
+    private fun isInferenceFailure(error: Throwable): Boolean =
+        error is Exception || error is LinkageError || error is OutOfMemoryError
+}
+
+private class DepthSession private constructor(
+    val model: DepthModel,
+    private val interpreter: Interpreter,
+) {
+    private val side = model.side
+    private val inputTensor = interpreter.getInputTensor(0)
+    private val outputTensor = interpreter.getOutputTensor(0)
+    private val inputType = inputTensor.dataType()
+    private val outputType = outputTensor.dataType()
+
+    init {
+        require(inputTensor.shape().contentEquals(intArrayOf(1, side, side, 3))) { "Unexpected input tensor" }
+        require(outputTensor.shape().contentEquals(intArrayOf(1, side, side, 1))) { "Unexpected output tensor" }
+        require(inputType == DataType.FLOAT32 || inputType == DataType.UINT8) { "Unsupported input type: $inputType" }
+        require(outputType == DataType.FLOAT32 || outputType == DataType.UINT8) { "Unsupported output type: $outputType" }
+    }
+
+    private val input = ByteBuffer.allocateDirect(inputTensor.numBytes()).order(ByteOrder.nativeOrder())
+    private val output = ByteBuffer.allocateDirect(outputTensor.numBytes()).order(ByteOrder.nativeOrder())
+    private val pixels = IntArray(side * side)
+    private val quantizedRgb = if (inputType == DataType.UINT8) {
+        val params = inputTensor.quantizationParams()
+        require(params.scale.isFinite() && params.scale > 0f) { "Invalid RGB quantization scale" }
+        ByteArray(256) { value ->
+            (value / 255f / params.scale + params.zeroPoint).roundToInt().coerceIn(0, 255).toByte()
+        }
+    } else {
+        null
+    }
+    private var fallbackBitmap: Bitmap? = null
+
+    fun run(snapshot: Bitmap): FloatArray? {
+        val frame = if (snapshot.width == side) snapshot else {
+            val scaled = fallbackBitmap ?: Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888)
+                .also { fallbackBitmap = it }
+            scaled.eraseColor(0)
+            Canvas(scaled).drawBitmap(snapshot, null, Rect(0, 0, side, side), Paint(Paint.FILTER_BITMAP_FLAG))
+            scaled
+        }
+        frame.getPixels(pixels, 0, side, 0, 0, side, side)
         input.clear()
-        val scaled = scaledBitmap?.takeIf { it.width == inputWidth && it.height == inputHeight }
-            ?: Bitmap.createBitmap(inputWidth, inputHeight, Bitmap.Config.ARGB_8888).also { scaledBitmap = it }
-        Canvas(scaled).drawBitmap(
-            bitmap,
-            Rect(0, 0, bitmap.width, bitmap.height),
-            Rect(0, 0, inputWidth, inputHeight),
-            null,
-        )
-        val pixelCount = inputWidth * inputHeight
-        if (inputPixels.size != pixelCount) inputPixels = IntArray(pixelCount)
-        scaled.getPixels(inputPixels, 0, inputWidth, 0, 0, inputWidth, inputHeight)
-        for (pixel in inputPixels) {
-            val r = (pixel shr 16) and 0xff
-            val g = (pixel shr 8) and 0xff
+        val rgb = quantizedRgb
+        for (pixel in pixels) {
+            val r = (pixel ushr 16) and 0xff
+            val g = (pixel ushr 8) and 0xff
             val b = pixel and 0xff
-            when (inputType) {
-                DataType.FLOAT32 -> {
-                    input.putFloat(r / 255f)
-                    input.putFloat(g / 255f)
-                    input.putFloat(b / 255f)
-                }
-                DataType.INT8 -> {
-                    input.put((r - 128).toByte())
-                    input.put((g - 128).toByte())
-                    input.put((b - 128).toByte())
-                }
-                else -> {
-                    input.put(r.toByte())
-                    input.put(g.toByte())
-                    input.put(b.toByte())
-                }
+            if (rgb == null) {
+                input.putFloat(r / 255f)
+                input.putFloat(g / 255f)
+                input.putFloat(b / 255f)
+            } else {
+                input.put(rgb[r])
+                input.put(rgb[g])
+                input.put(rgb[b])
             }
         }
         input.rewind()
-        return input
+        output.clear()
+        interpreter.run(input, output)
+        output.rewind()
+
+        // For UINT8 output, affine dequantization cancels during min-max normalization.
+        val raw = FloatArray(pixels.size) {
+            if (outputType == DataType.FLOAT32) output.float else (output.get().toInt() and 0xff).toFloat()
+        }
+        return normalizeDepth(raw)
     }
 
-    private fun clearWorkingBuffers() {
-        inputBuffer = null
-        outputBuffer = null
-        scaledBitmap?.recycle()
-        scaledBitmap = null
-        inputPixels = IntArray(0)
+    fun close() {
+        interpreter.close()
+        fallbackBitmap?.recycle()
     }
 
-    private fun readOutput(output: ByteBuffer): FloatArray {
-        val raw = FloatArray(outputWidth * outputHeight)
-        var minValue = Float.MAX_VALUE
-        var maxValue = -Float.MAX_VALUE
-        for (index in raw.indices) {
-            val value = when (outputType) {
-                DataType.FLOAT32 -> output.float
-                DataType.INT8 -> output.get().toInt().toFloat()
-                else -> output.get().toInt().and(0xff).toFloat()
+    companion object {
+        fun open(context: Context, model: DepthModel): DepthSession {
+            val buffer = context.assets.openFd(model.asset).use { descriptor ->
+                FileInputStream(descriptor.fileDescriptor).channel.use { channel ->
+                    channel.map(FileChannel.MapMode.READ_ONLY, descriptor.startOffset, descriptor.length)
+                }
             }
-            raw[index] = value
-            minValue = min(minValue, value)
-            maxValue = max(maxValue, value)
+            val interpreter = Interpreter(buffer, Interpreter.Options().setNumThreads(2))
+            try {
+                interpreter.allocateTensors()
+                return DepthSession(model, interpreter)
+            } catch (error: Throwable) {
+                interpreter.close()
+                throw error
+            }
         }
-        val range = (maxValue - minValue).takeIf { it > 0.00001f } ?: 1f
-        for (index in raw.indices) {
-            raw[index] = ((raw[index] - minValue) / range).coerceIn(0f, 1f)
-        }
-        return raw
     }
+}
 
-    private fun bytesPerElement(type: DataType): Int =
-        if (type == DataType.FLOAT32) 4 else 1
+internal fun normalizeDepth(values: FloatArray): FloatArray? {
+    var low = Float.POSITIVE_INFINITY
+    var high = Float.NEGATIVE_INFINITY
+    for (value in values) {
+        if (value.isFinite()) {
+            low = minOf(low, value)
+            high = maxOf(high, value)
+        }
+    }
+    val range = high.toDouble() - low
+    if (!range.isFinite() || range <= 0.00001) return null
+    for (index in values.indices) {
+        val value = values[index]
+        values[index] = if (value.isFinite()) ((value.toDouble() - low) / range).toFloat() else 0.5f
+    }
+    return values
 }

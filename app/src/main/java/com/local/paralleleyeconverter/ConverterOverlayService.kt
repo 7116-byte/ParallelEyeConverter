@@ -1,6 +1,7 @@
 package com.local.paralleleyeconverter
 
 import android.app.Service
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
@@ -27,6 +28,7 @@ import android.view.WindowManager.LayoutParams
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.sqrt
@@ -65,12 +67,13 @@ class ConverterOverlayService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!showingPlayer) showPlayer()
         scheduleTargetLearning()
         return START_NOT_STICKY
     }
 
     override fun onDestroy() {
-        mainHandler.removeCallbacks(targetLearningRunnable)
+        mainHandler.removeCallbacksAndMessages(null)
         unregisterDisplayListener()
         cancelFloatingBallIdle()
         removeCurrentView()
@@ -259,25 +262,59 @@ class ConverterOverlayService : Service() {
     }
 
     private fun openTargetThenShowPlayer() {
-        if (launchTargetAppIfNeeded()) {
-            mainHandler.postDelayed({ showPlayer() }, 700L)
+        if (FrameBus.captureState == CaptureState.STOPPED) {
+            startActivity(Intent(this, CapturePermissionActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             return
         }
-        showPlayer()
-    }
-
-    private fun launchTargetAppIfNeeded(): Boolean {
-        val targetPackage = ForegroundAppHelper.readTargetPackage(this)
-        val currentPackage = ForegroundAppHelper.readForegroundPackage(this)
-        if (!targetPackage.isNullOrBlank() && currentPackage != targetPackage) {
-            val launchIntent = packageManager.getLaunchIntentForPackage(targetPackage)
-            if (launchIntent != null) {
-                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-                startActivity(launchIntent)
-                return true
+        val ball = currentView ?: return
+        val wasHidden = FrameBus.captureState == CaptureState.HIDDEN
+        val target = ForegroundAppHelper.readTargetPackage(this)
+            ?: ForegroundAppHelper.captureFirstTargetPackage(this)
+        if (target == null) {
+            if (wasHidden) showReturnMessage(R.string.return_target_unknown) else showPlayer()
+            return
+        }
+        if (FrameBus.captureState == CaptureState.LIVE && ForegroundAppHelper.readForegroundPackage(this) == target) {
+            showPlayer()
+            return
+        }
+        val launch = packageManager.getLaunchIntentForPackage(target)
+        if (launch == null) {
+            showReturnMessage(R.string.return_target_unavailable)
+            return
+        }
+        val start = android.os.SystemClock.uptimeMillis()
+        val previousFrame = FrameBus.frameVersion
+        try {
+            startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (_: ActivityNotFoundException) {
+            showReturnMessage(R.string.return_target_unavailable)
+            return
+        } catch (_: SecurityException) {
+            showReturnMessage(R.string.return_target_unavailable)
+            return
+        }
+        mainHandler.removeCallbacksAndMessages(RETURN_TO_PLAYER_TOKEN)
+        val waitForTarget = object : Runnable {
+            override fun run() {
+                if (currentView !== ball || showingPlayer) return
+                val elapsed = android.os.SystemClock.uptimeMillis() - start
+                val newFrame = FrameBus.captureState == CaptureState.LIVE && FrameBus.frameVersion != previousFrame
+                val targetResumed = newFrame &&
+                    ForegroundAppHelper.readForegroundPackage(this@ConverterOverlayService, elapsed + 500L) == target
+                when {
+                    newFrame && (targetResumed || wasHidden) -> showPlayer()
+                    FrameBus.captureState == CaptureState.STOPPED -> showReturnMessage(R.string.capture_stopped)
+                    elapsed >= 4000L -> showReturnMessage(R.string.return_target_unavailable)
+                    else -> mainHandler.postAtTime(this, RETURN_TO_PLAYER_TOKEN, start + elapsed + 250L)
+                }
             }
         }
-        return false
+        mainHandler.postAtTime(waitForTarget, RETURN_TO_PLAYER_TOKEN, start + 250L)
+    }
+
+    private fun showReturnMessage(message: Int) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 
     private fun openHomePage() {
@@ -552,7 +589,6 @@ private class FloatingBallView(context: Context) : View(context) {
     private var onTouchStarted: (() -> Unit)? = null
     private var onMoveRequested: ((Float, Float) -> Unit)? = null
     private var onTouchFinished: (() -> Unit)? = null
-    private var lastTapTime = 0L
     private var downX = 0f
     private var downY = 0f
     private var lastRawX = 0f
@@ -561,6 +597,14 @@ private class FloatingBallView(context: Context) : View(context) {
 
     fun setOnOpenRequested(listener: () -> Unit) {
         onOpenRequested = listener
+        isClickable = true
+        contentDescription = context.getString(R.string.return_sbs)
+    }
+
+    override fun performClick(): Boolean {
+        super.performClick()
+        onOpenRequested?.invoke() ?: return false
+        return true
     }
 
     fun setOnTouchStarted(listener: () -> Unit) {
@@ -611,16 +655,10 @@ private class FloatingBallView(context: Context) : View(context) {
                 return true
             }
             MotionEvent.ACTION_UP -> {
-                if (!moved && abs(event.rawX - downX) < 12f && abs(event.rawY - downY) < 12f) {
-                    val now = System.currentTimeMillis()
-                    if (now - lastTapTime < 360L) {
-                        lastTapTime = 0L
-                        onOpenRequested?.invoke()
-                    } else {
-                        lastTapTime = now
-                    }
-                }
                 onTouchFinished?.invoke()
+                if (!moved && abs(event.rawX - downX) < 12f && abs(event.rawY - downY) < 12f) {
+                    performClick()
+                }
                 return true
             }
             MotionEvent.ACTION_CANCEL -> {
@@ -633,6 +671,7 @@ private class FloatingBallView(context: Context) : View(context) {
 }
 
 private val DISPLAY_REFRESH_TOKEN = Any()
+private val RETURN_TO_PLAYER_TOKEN = Any()
 private const val TARGET_LEARNING_INTERVAL_MS = 350L
 
 private class ConverterSbsView(context: Context) : View(context) {
@@ -698,6 +737,7 @@ private class ConverterSbsView(context: Context) : View(context) {
         canvas.drawColor(Color.BLACK)
         val frame = FrameBus.latestFrame
         if (frame == null) {
+            stereoRenderer.clear()
             val message = when (FrameBus.captureState) {
                 CaptureState.STOPPED -> R.string.capture_stopped
                 CaptureState.HIDDEN -> R.string.capture_hidden
@@ -711,14 +751,11 @@ private class ConverterSbsView(context: Context) : View(context) {
             val leftCenter = StereoLayout.eyeCenterX(width.toFloat(), centerDistance, rightEye = false)
             val rightCenter = StereoLayout.eyeCenterX(width.toFloat(), centerDistance, rightEye = true)
             if (AppSettings.true3dEnabled(context)) {
-                val depth = DepthBus.latestDepth
-                val depthVersion = DepthBus.depthVersion
-                val frameVersion = FrameBus.frameVersion
-                val disparity = AppSettings.disparity(context)
-                val leftEye = stereoRenderer.renderEye(frame, frameVersion, depth, depthVersion, disparity, rightEye = false)
-                val rightEye = stereoRenderer.renderEye(frame, frameVersion, depth, depthVersion, disparity, rightEye = true)
-                drawEye(canvas, leftEye, 0f, eyeWidth, leftCenter)
-                drawEye(canvas, rightEye, eyeWidth, eyeWidth, rightCenter)
+                val eyes = stereoRenderer.render(
+                    frame, FrameBus.frameVersion, DepthBus.latestDepth, AppSettings.disparity(context),
+                )
+                drawEye(canvas, eyes?.left ?: frame, 0f, eyeWidth, leftCenter)
+                drawEye(canvas, eyes?.right ?: frame, eyeWidth, eyeWidth, rightCenter)
                 drawDebug(canvas)
             } else {
                 stereoRenderer.clear()
@@ -816,8 +853,8 @@ private class ConverterSbsView(context: Context) : View(context) {
     private fun drawDebug(canvas: Canvas) {
         val lines = listOf(
             "FPS $currentFps",
-            "3D ${AppSettings.modelName(context)} ${AppSettings.perfLabel(context)} x${AppSettings.inferenceInterval(context)}",
-            "disp ${"%.1f".format(AppSettings.disparity(context))} res ${AppSettings.resolutionLabel(context)}",
+            "3D ${AppSettings.depthModel(context).label} ${AppSettings.perfLabel(context)} x${AppSettings.inferenceInterval(context)}",
+            "disp ${"%.1f".format(AppSettings.disparity(context))}",
             DepthBus.lastStatus,
         )
         var y = 24f * resources.displayMetrics.density
